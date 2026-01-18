@@ -54,21 +54,8 @@ class ImuHttpServer(
     }
 
     private fun inRangeHalfSecond(): Pair<Boolean, Boolean> {
-        // HAND_UP bands
-        val upXMin = 8.5
-        val upXMax = 10.5
-        val upYMin = -5.0
-        val upYMax = 0.0
-        val upZMin = 2.5
-        val upZMax = 5.0
-
-        // HAND_DOWN bands
-        val downXMin = -11.0
-        val downXMax = -9.0
-        val downYMin = -4.0
-        val downYMax = -2.0
-        val downZMin = 0.0
-        val downZMax = 3.0
+        val up = HandBands.HAND_UP
+        val down = HandBands.HAND_DOWN
 
         val snapshot: List<ImuSample> = synchronized(lock) { lastHalfSecond.toList() }
         if (snapshot.isEmpty()) return Pair(false, false)
@@ -78,14 +65,14 @@ class ImuHttpServer(
 
         snapshot.forEach { s ->
             val upOk =
-                s.ax in upXMin..upXMax &&
-                        s.ay in upYMin..upYMax &&
-                        s.az in upZMin..upZMax
+                s.ax in up.axMin..up.axMax &&
+                        s.ay in up.ayMin..up.ayMax &&
+                        s.az in up.azMin..up.azMax
 
             val downOk =
-                s.ax in downXMin..downXMax &&
-                        s.ay in downYMin..downYMax &&
-                        s.az in downZMin..downZMax
+                s.ax in down.axMin..down.axMax &&
+                        s.ay in down.ayMin..down.ayMax &&
+                        s.az in down.azMin..down.azMax
 
             if (!upOk) upOut++
             if (!downOk) downOut++
@@ -236,5 +223,33 @@ class ImuHttpServer(
 
     fun getLastSecondSamples(): List<ImuSample> = synchronized(lock) {
         lastSecondSamples.toList()
+    }
+
+    data class HandBands(
+        val axMin: Double,
+        val axMax: Double,
+        val ayMin: Double,
+        val ayMax: Double,
+        val azMin: Double,
+        val azMax: Double
+    ) {
+        companion object {
+            val HAND_UP = HandBands(
+                axMin = 8.5,
+                axMax = 10.5,
+                ayMin = -5.0,
+                ayMax = 0.0,
+                azMin = 2.5,
+                azMax = 5.0
+            )
+            val HAND_DOWN = HandBands(
+                axMin = -11.0,
+                axMax = -9.0,
+                ayMin = -4.0,
+                ayMax = -2.0,
+                azMin = 0.0,
+                azMax = 3.0
+            )
+        }
     }
 }

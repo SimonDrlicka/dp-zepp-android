@@ -17,6 +17,7 @@ class GraphView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     data class Sample(val ts: Long, val values: FloatArray)
+    data class Band(val seriesIndex: Int, val min: Float, val max: Float, val color: Int)
 
     private val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#3C3C3C")
@@ -37,19 +38,20 @@ class GraphView @JvmOverloads constructor(
         style = Paint.Style.STROKE
     }
 
-    private val seriesColors = intArrayOf(
-        Color.parseColor("#0E79B2"),
-        Color.parseColor("#F39237"),
-        Color.parseColor("#BF2F2F"),
-        Color.parseColor("#2E933C")
-    )
+    private val seriesColors = DEFAULT_SERIES_COLORS
 
     private var samples: List<Sample> = emptyList()
     private var labels: List<String> = emptyList()
+    private var bands: List<Band> = emptyList()
 
     fun setSeries(samples: List<Sample>, labels: List<String>) {
         this.samples = samples
         this.labels = labels
+        invalidate()
+    }
+
+    fun setBands(bands: List<Band>) {
+        this.bands = bands
         invalidate()
     }
 
@@ -97,6 +99,8 @@ class GraphView @JvmOverloads constructor(
         val tsRange = max(1L, maxTs - minTs)
         val valRange = max(0.0001f, maxVal - minVal)
 
+        drawBands(canvas, left, right, top, bottom, minVal, maxVal)
+
         val seriesCount = samples.maxOf { it.values.size }
         for (seriesIndex in 0 until seriesCount) {
             val path = Path()
@@ -119,6 +123,29 @@ class GraphView @JvmOverloads constructor(
         drawLegend(canvas, left, top)
         drawValueAxis(canvas, left, top, bottom, minVal, maxVal)
         drawTimestampAxis(canvas, left, right, bottom, minTs, maxTs)
+    }
+
+    private fun drawBands(
+        canvas: Canvas,
+        left: Float,
+        right: Float,
+        top: Float,
+        bottom: Float,
+        minVal: Float,
+        maxVal: Float
+    ) {
+        if (bands.isEmpty()) return
+
+        val valRange = max(0.0001f, maxVal - minVal)
+        bands.forEach { band ->
+            val yMax = bottom - (band.max - minVal) / valRange * (bottom - top)
+            val yMin = bottom - (band.min - minVal) / valRange * (bottom - top)
+            val bandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = band.color
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(left, min(yMin, yMax), right, max(yMin, yMax), bandPaint)
+        }
     }
 
     private fun drawLegend(canvas: Canvas, left: Float, top: Float) {
@@ -165,4 +192,13 @@ class GraphView @JvmOverloads constructor(
     }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
+
+    companion object {
+        val DEFAULT_SERIES_COLORS = intArrayOf(
+            Color.parseColor("#0E79B2"),
+            Color.parseColor("#F39237"),
+            Color.parseColor("#BF2F2F"),
+            Color.parseColor("#2E933C")
+        )
+    }
 }

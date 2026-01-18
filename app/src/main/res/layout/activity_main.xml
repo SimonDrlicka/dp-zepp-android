@@ -35,6 +35,14 @@
         android:paddingBottom="12dp"/>
 
     <TextView
+        android:id="@+id/gyroTsText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ts: -"
+        android:textSize="12sp"
+        android:paddingBottom="12dp"/>
+
+    <TextView
         android:id="@+id/accelLabel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -42,10 +50,24 @@
         android:textSize="14sp"
         android:paddingBottom="6dp"/>
 
+    <Spinner
+        android:id="@+id/poseSelect"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="6dp"/>
+
     <com.example.zepp_gestures.GraphView
         android:id="@+id/accelGraph"
         android:layout_width="match_parent"
         android:layout_height="180dp"
+        android:paddingBottom="12dp"/>
+
+    <TextView
+        android:id="@+id/accelTsText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ts: -"
+        android:textSize="12sp"
         android:paddingBottom="12dp"/>
     <Button
         android:id="@+id/startBtn"
