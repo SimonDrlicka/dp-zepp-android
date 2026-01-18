@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Server not running"
+        android:textSize="16sp"
+        android:paddingBottom="12dp"/>
+    <TextView
+        android:id="@+id/inRangeText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="in range: false"
+        android:textSize="18sp"
+        android:paddingBottom="12dp"/>
+
+    <TextView
+        android:id="@+id/gyroLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Gyroscope (gx, gy, gz)"
+        android:textSize="14sp"
+        android:paddingBottom="6dp"/>
+
+    <com.example.zepp_gestures.GraphView
+        android:id="@+id/gyroGraph"
+        android:layout_width="match_parent"
+        android:layout_height="180dp"
+        android:paddingBottom="12dp"/>
+
+    <TextView
+        android:id="@+id/accelLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Accelerometer (ax, ay, az)"
+        android:textSize="14sp"
+        android:paddingBottom="6dp"/>
+
+    <com.example.zepp_gestures.GraphView
+        android:id="@+id/accelGraph"
+        android:layout_width="match_parent"
+        android:layout_height="180dp"
+        android:paddingBottom="12dp"/>
+    <Button
+        android:id="@+id/startBtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start server"/>
+
+    <Button
+        android:id="@+id/stopBtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Stop server"
+        android:layout_marginTop="8dp"/>
+</LinearLayout>
