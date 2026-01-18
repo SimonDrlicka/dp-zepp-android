@@ -3,7 +3,7 @@ package com.example.zepp_gestures
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 data class ParsedSample(
     val gx: Double,
@@ -26,8 +26,8 @@ data class ImuSample(
 )
 
 class ImuHttpServer(
-    private val latestHandUp: AtomicBoolean,
-    private val latestHandDown: AtomicBoolean,
+    private val gestureConfig: List<GestureDefinition>,
+    private val latestGestureMessage: AtomicReference<String>,
     port: Int = 8080
 ) : NanoHTTPD(port) {
     private val allSamples = mutableListOf<ImuSample>()
@@ -53,40 +53,26 @@ class ImuHttpServer(
         }
     }
 
-    private fun inRangeHalfSecond(): Pair<Boolean, Boolean> {
-        val up = HandBands.HAND_UP
-        val down = HandBands.HAND_DOWN
+    private fun inRangeHalfSecond(): List<GestureDefinition> {
 
         val snapshot: List<ImuSample> = synchronized(lock) { lastHalfSecond.toList() }
-        if (snapshot.isEmpty()) return Pair(false, false)
+        if (snapshot.isEmpty()) return emptyList()
 
-        var upOut = 0
-        var downOut = 0
+        val active = ArrayList<GestureDefinition>()
 
-        snapshot.forEach { s ->
-            val upOk =
-                s.ax in up.axMin..up.axMax &&
-                        s.ay in up.ayMin..up.ayMax &&
-                        s.az in up.azMin..up.azMax
-
-            val downOk =
-                s.ax in down.axMin..down.axMax &&
-                        s.ay in down.ayMin..down.ayMax &&
-                        s.az in down.azMin..down.azMax
-
-            if (!upOk) upOut++
-            if (!downOk) downOut++
-
-//            Log.d(
-//                "ImuHttpServer",
-//                "sample ts=${s.ts} " +
-//                        "ax=${"%.2f".format(s.ax)} ay=${"%.2f".format(s.ay)} az=${"%.2f".format(s.az)} " +
-//                        "| upOk=$upOk downOk=$downOk"
-//            )
+        gestureConfig.forEach { gesture ->
+            var outCount = 0
+            snapshot.forEach { s ->
+                val ok =
+                    s.ax in gesture.bands.axMin..gesture.bands.axMax &&
+                            s.ay in gesture.bands.ayMin..gesture.bands.ayMax &&
+                            s.az in gesture.bands.azMin..gesture.bands.azMax
+                if (!ok) outCount++
+            }
+            if (outCount == 0) {
+                active.add(gesture)
+            }
         }
-
-        val handUp = upOut == 0
-        val handDown = downOut == 0
 
         Log.d(
             "ImuHttpServer",
@@ -94,11 +80,10 @@ class ImuHttpServer(
                     "mean value: ax=${"%.2f".format(snapshot.map { it.ax }.average())} " +
                     "ay=${"%.2f".format(snapshot.map { it.ay }.average()) } " +
                     " az=${"%.2f".format(snapshot.map { it.az }.average())} " +
-                    "| handUp=$handUp (out=$upOut) " +
-                    "| handDown=$handDown (out=$downOut)"
+                    "| active=${active.joinToString { it.name }}"
         )
 
-        return Pair(handUp, handDown)
+        return active
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -146,10 +131,13 @@ class ImuHttpServer(
         updateBuffers(parsed)
 
         updateHalfSecond(parsed)
-        val (handUpInRange, handDownInRange) = inRangeHalfSecond()
-
-        latestHandUp.set(handUpInRange)
-        latestHandDown.set(handDownInRange)
+        val activeGestures = inRangeHalfSecond()
+        val message = if (activeGestures.isEmpty()) {
+            "No gesture detected"
+        } else {
+            activeGestures.joinToString(" | ") { it.message }
+        }
+        latestGestureMessage.set(message)
 
         return """{
             "status":"ok",
@@ -223,33 +211,5 @@ class ImuHttpServer(
 
     fun getLastSecondSamples(): List<ImuSample> = synchronized(lock) {
         lastSecondSamples.toList()
-    }
-
-    data class HandBands(
-        val axMin: Double,
-        val axMax: Double,
-        val ayMin: Double,
-        val ayMax: Double,
-        val azMin: Double,
-        val azMax: Double
-    ) {
-        companion object {
-            val HAND_UP = HandBands(
-                axMin = 8.5,
-                axMax = 10.5,
-                ayMin = -5.0,
-                ayMax = 0.0,
-                azMin = 2.5,
-                azMax = 5.0
-            )
-            val HAND_DOWN = HandBands(
-                axMin = -11.0,
-                axMax = -9.0,
-                ayMin = -4.0,
-                ayMax = -2.0,
-                azMin = 0.0,
-                azMax = 3.0
-            )
-        }
     }
 }

@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import fi.iki.elonen.NanoHTTPD
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : AppCompatActivity() {
 
@@ -17,21 +18,21 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var statusText: TextView
-    private val latestHandUp = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val latestHandDown = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val latestGestureMessage = AtomicReference("No gesture detected")
 
     private lateinit var gyroGraph: GraphView
     private lateinit var accelGraph: GraphView
     private lateinit var gyroTsText: TextView
     private lateinit var accelTsText: TextView
     private lateinit var poseSelect: Spinner
-    private var selectedBands: ImuHttpServer.HandBands = ImuHttpServer.HandBands.HAND_UP
+    private val gestures = GestureConfig.gestures
+    private var selectedGesture: GestureDefinition = gestures.first()
 
     private lateinit var inRangeText: TextView
 
     private val uiUpdater = object : Runnable {
         override fun run() {
-            inRangeText.text = "hand up: ${latestHandUp.get()} | hand down: ${latestHandDown.get()}"
+            inRangeText.text = latestGestureMessage.get()
             val samples = server?.getLastSecondSamples().orEmpty()
             gyroGraph.setSeries(
                 samples.map { GraphView.Sample(it.ts, floatArrayOf(it.gx.toFloat(), it.gy.toFloat(), it.gz.toFloat())) },
@@ -63,9 +64,9 @@ class MainActivity : AppCompatActivity() {
 
         gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
         accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
-        applyAccelBands(selectedBands)
+        applyAccelBands(selectedGesture)
 
-        val options = listOf("Hand up", "Hand down")
+        val options = gestures.map { it.name }
         poseSelect.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options)
         poseSelect.setSelection(0)
         poseSelect.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -75,23 +76,19 @@ class MainActivity : AppCompatActivity() {
                 position: Int,
                 id: Long
             ) {
-                selectedBands = if (position == 0) {
-                    ImuHttpServer.HandBands.HAND_UP
-                } else {
-                    ImuHttpServer.HandBands.HAND_DOWN
-                }
-                applyAccelBands(selectedBands)
+                selectedGesture = gestures.getOrNull(position) ?: gestures.first()
+                applyAccelBands(selectedGesture)
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {
-                selectedBands = ImuHttpServer.HandBands.HAND_UP
-                applyAccelBands(selectedBands)
+                selectedGesture = gestures.first()
+                applyAccelBands(selectedGesture)
             }
         }
 
         startBtn.setOnClickListener {
             if (server == null) {
-                server = ImuHttpServer(latestHandUp, latestHandDown, 8080).apply {
+                server = ImuHttpServer(gestures, latestGestureMessage, 8080).apply {
                     start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                 }
                 statusText.text = "Server running on port 8080"
@@ -104,7 +101,7 @@ class MainActivity : AppCompatActivity() {
             server = null
             handler.removeCallbacks(uiUpdater)
             statusText.text = "Server stopped"
-            inRangeText.text = "hand up: ${latestHandUp.get()} | hand down: ${latestHandDown.get()}"
+            inRangeText.text = "No gesture detected"
             gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
             accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
             gyroTsText.text = "ts: -"
@@ -118,14 +115,14 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun applyAccelBands(bands: ImuHttpServer.HandBands) {
+    private fun applyAccelBands(gesture: GestureDefinition) {
         val alpha = 0x33
         val colors = GraphView.DEFAULT_SERIES_COLORS
         accelGraph.setBands(
             listOf(
-                GraphView.Band(0, bands.axMin.toFloat(), bands.axMax.toFloat(), withAlpha(colors[0], alpha)),
-                GraphView.Band(1, bands.ayMin.toFloat(), bands.ayMax.toFloat(), withAlpha(colors[1], alpha)),
-                GraphView.Band(2, bands.azMin.toFloat(), bands.azMax.toFloat(), withAlpha(colors[2], alpha))
+                GraphView.Band(0, gesture.bands.axMin.toFloat(), gesture.bands.axMax.toFloat(), withAlpha(colors[0], alpha)),
+                GraphView.Band(1, gesture.bands.ayMin.toFloat(), gesture.bands.ayMax.toFloat(), withAlpha(colors[1], alpha)),
+                GraphView.Band(2, gesture.bands.azMin.toFloat(), gesture.bands.azMax.toFloat(), withAlpha(colors[2], alpha))
             )
         )
     }
