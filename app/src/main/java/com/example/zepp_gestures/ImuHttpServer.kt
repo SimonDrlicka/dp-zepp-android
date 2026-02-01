@@ -3,6 +3,7 @@ package com.example.zepp_gestures
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 data class ImuSample(
@@ -18,14 +19,25 @@ data class ImuSample(
 class ImuHttpServer(
     private val gestureConfig: List<GestureDefinition>,
     private val latestGestureMessage: AtomicReference<String>,
-    port: Int = 8080
+    port: Int = 8080,
+    private val onGestureSegmentReady: (List<ImuSample>) -> Unit = {}
 ) : NanoHTTPD(port) {
+    enum class AppMode {
+        WAITING,
+        GESTURE
+    }
+
     private val allSamples = mutableListOf<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
 
     private val lock = Any()
 
     private val lastHalfSecond = mutableListOf<ImuSample>()
+    private val currentMode = AtomicReference(AppMode.WAITING)
+    private val captureSamples = mutableListOf<ImuSample>()
+    private val bluePoints = AtomicInteger(0)
+    private val redPoints = AtomicInteger(0)
+    private var pointArmed = true
 
     private fun updateHalfSecond(newSamples: List<ImuSample>) {
         if (newSamples.isEmpty()) return
@@ -74,6 +86,61 @@ class ImuHttpServer(
         )
 
         return active
+    }
+
+    private fun updateMode(activeGestures: List<GestureDefinition>): Pair<AppMode, AppMode> {
+        val previous = currentMode.get()
+        if (activeGestures.isEmpty()) return previous to previous
+
+        val hasHandUp = activeGestures.any { it.name == "Hand up" }
+        val hasHandDown = activeGestures.any { it.name == "Hand down" }
+
+        if (hasHandUp) {
+            currentMode.set(AppMode.GESTURE)
+        } else if (hasHandDown) {
+            currentMode.set(AppMode.WAITING)
+        }
+        return previous to currentMode.get()
+    }
+
+    private fun updateCapture(newSamples: List<ImuSample>, modeChange: Pair<AppMode, AppMode>) {
+        val (previous, current) = modeChange
+        var segmentToExport: List<ImuSample>? = null
+        synchronized(lock) {
+            if (current == AppMode.GESTURE) {
+                if (previous != AppMode.GESTURE) {
+                    captureSamples.clear()
+                }
+                captureSamples.addAll(newSamples)
+            } else if (previous == AppMode.GESTURE && current == AppMode.WAITING && captureSamples.isNotEmpty()) {
+                segmentToExport = captureSamples.toList()
+                captureSamples.clear()
+            }
+        }
+        segmentToExport?.let(onGestureSegmentReady)
+    }
+
+    private fun updatePoints(newSamples: List<ImuSample>) {
+        if (currentMode.get() != AppMode.GESTURE) return
+        synchronized(lock) {
+            val threshold = GestureConfig.POINT_GYRO_THRESHOLD * GestureConfig.POINT_GYRO_SCALE
+            newSamples.forEach { s ->
+                if (pointArmed) {
+                    when {
+                        s.gx < -threshold -> {
+                            bluePoints.incrementAndGet()
+                            pointArmed = false
+                        }
+                        s.gx > threshold -> {
+                            redPoints.incrementAndGet()
+                            pointArmed = false
+                        }
+                    }
+                } else if (s.gx >= -threshold && s.gx <= threshold) {
+                    pointArmed = true
+                }
+            }
+        }
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -128,10 +195,12 @@ class ImuHttpServer(
             return """{"status":"error","detail":"No valid samples"}"""
         }
 
-        updateBuffers(parsed)
-
         updateHalfSecond(parsed)
         val activeGestures = inRangeHalfSecond()
+        val modeChange = updateMode(activeGestures)
+        updateBuffers(parsed)
+        updatePoints(parsed)
+        updateCapture(parsed, modeChange)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -164,9 +233,11 @@ class ImuHttpServer(
             return """{"status":"error","detail":"No valid samples"}"""
         }
 
-        replaceBuffers(parsed)
-
         val activeGestures = inRangeHalfSecond()
+        val modeChange = updateMode(activeGestures)
+        replaceBuffers(parsed)
+        updatePoints(parsed)
+        updateCapture(parsed, modeChange)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -251,6 +322,7 @@ class ImuHttpServer(
             allSamples.clear()
             lastSecondSamples.clear()
             lastHalfSecond.clear()
+            captureSamples.clear()
 
             allSamples.addAll(allData)
 
@@ -271,5 +343,21 @@ class ImuHttpServer(
 
     fun getLastSecondSamples(): List<ImuSample> = synchronized(lock) {
         lastSecondSamples.toList()
+    }
+
+    fun getAllSamples(): List<ImuSample> = synchronized(lock) {
+        allSamples.toList()
+    }
+
+    fun getMode(): AppMode = currentMode.get()
+
+    fun getPoints(): Pair<Int, Int> = bluePoints.get() to redPoints.get()
+
+    fun resetPoints() {
+        bluePoints.set(0)
+        redPoints.set(0)
+        synchronized(lock) {
+            pointArmed = true
+        }
     }
 }

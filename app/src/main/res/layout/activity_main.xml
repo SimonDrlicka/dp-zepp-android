@@ -21,6 +21,22 @@
         android:paddingBottom="12dp"/>
 
     <TextView
+        android:id="@+id/modeText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Mode: waiting"
+        android:textSize="18sp"
+        android:paddingBottom="12dp"/>
+
+    <TextView
+        android:id="@+id/pointsText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Blue: 0 | Red: 0"
+        android:textSize="18sp"
+        android:paddingBottom="12dp"/>
+
+    <TextView
         android:id="@+id/gyroLabel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -69,16 +85,33 @@
         android:text="ts: -"
         android:textSize="12sp"
         android:paddingBottom="12dp"/>
-    <Button
-        android:id="@+id/startBtn"
+    <LinearLayout
+        android:id="@+id/serverButtonRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Start server"/>
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/startBtn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Start server"/>
+
+        <Button
+            android:id="@+id/stopBtn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="Stop server"/>
+    </LinearLayout>
 
     <Button
-        android:id="@+id/stopBtn"
+        android:id="@+id/exportBtn"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Stop server"
+        android:text="Export CSV"
         android:layout_marginTop="8dp"/>
 </LinearLayout>

@@ -16,6 +16,8 @@ data class GestureDefinition(
 )
 
 object GestureConfig {
+    const val POINT_GYRO_THRESHOLD = 7.0
+    const val POINT_GYRO_SCALE = 100.0
     val gestures: List<GestureDefinition> = listOf(
         GestureDefinition(
             name = "Hand up",
