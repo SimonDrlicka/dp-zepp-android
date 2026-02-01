@@ -11,6 +11,9 @@ import fi.iki.elonen.NanoHTTPD
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
 import java.util.concurrent.atomic.AtomicReference
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -65,6 +68,7 @@ class MainActivity : AppCompatActivity() {
         gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
         accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
         applyAccelBands(selectedGesture)
+        accelGraph.setFixedRange(-10f, 10f)
 
         val options = gestures.map { it.name }
         poseSelect.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options)
@@ -135,7 +139,8 @@ class MainActivity : AppCompatActivity() {
         val minTs = samples.minOf { it.ts }
         val maxTs = samples.maxOf { it.ts }
         val midTs = minTs + (maxTs - minTs) / 2
-        target.text = "ts: $minTs | $midTs | $maxTs"
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+        target.text = "ts: ${fmt.format(Date(minTs))} | ${fmt.format(Date(midTs))} | ${fmt.format(Date(maxTs))}"
     }
 
     private fun withAlpha(color: Int, alpha: Int): Int {

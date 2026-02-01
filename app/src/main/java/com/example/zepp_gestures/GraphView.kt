@@ -43,6 +43,8 @@ class GraphView @JvmOverloads constructor(
     private var samples: List<Sample> = emptyList()
     private var labels: List<String> = emptyList()
     private var bands: List<Band> = emptyList()
+    private var fixedMin: Float? = null
+    private var fixedMax: Float? = null
 
     fun setSeries(samples: List<Sample>, labels: List<String>) {
         this.samples = samples
@@ -52,6 +54,18 @@ class GraphView @JvmOverloads constructor(
 
     fun setBands(bands: List<Band>) {
         this.bands = bands
+        invalidate()
+    }
+
+    fun setFixedRange(min: Float, max: Float) {
+        fixedMin = min
+        fixedMax = max
+        invalidate()
+    }
+
+    fun clearFixedRange() {
+        fixedMin = null
+        fixedMax = null
         invalidate()
     }
 
@@ -83,17 +97,19 @@ class GraphView @JvmOverloads constructor(
         val minTs = samples.minOf { it.ts }
         val maxTs = samples.maxOf { it.ts }
 
-        var minVal = Float.POSITIVE_INFINITY
-        var maxVal = Float.NEGATIVE_INFINITY
-        samples.forEach { s ->
-            s.values.forEach { v ->
-                minVal = min(minVal, v)
-                maxVal = max(maxVal, v)
+        var minVal = fixedMin ?: Float.POSITIVE_INFINITY
+        var maxVal = fixedMax ?: Float.NEGATIVE_INFINITY
+        if (fixedMin == null || fixedMax == null) {
+            samples.forEach { s ->
+                s.values.forEach { v ->
+                    minVal = min(minVal, v)
+                    maxVal = max(maxVal, v)
+                }
             }
-        }
-        if (minVal == maxVal) {
-            minVal -= 1f
-            maxVal += 1f
+            if (minVal == maxVal) {
+                minVal -= 1f
+                maxVal += 1f
+            }
         }
 
         val tsRange = max(1L, maxTs - minTs)

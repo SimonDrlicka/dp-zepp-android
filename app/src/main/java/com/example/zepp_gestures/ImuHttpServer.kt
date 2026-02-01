@@ -5,16 +5,6 @@ import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicReference
 
-data class ParsedSample(
-    val gx: Double,
-    val gy: Double,
-    val gz: Double,
-    val ax: Double,
-    val ay: Double,
-    val az: Double,
-    val ts: Long
-)
-
 data class ImuSample(
     val gx: Double,
     val gy: Double,
@@ -103,6 +93,16 @@ class ImuHttpServer(
                     newFixedLengthResponse(Response.Status.OK, "application/json", result)
                 }
 
+                // ✅ NEW: replace all stored data with the full history payload
+                session.method == Method.POST && session.uri == "/gyro-data-full-reset" -> {
+                    val files = HashMap<String, String>()
+                    session.parseBody(files)
+                    val body = files["postData"] ?: ""
+
+                    val result = handleGyroDataFullReset(body)
+                    newFixedLengthResponse(Response.Status.OK, "application/json", result)
+                }
+
                 else -> newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found")
             }
         } catch (e: Exception) {
@@ -131,6 +131,41 @@ class ImuHttpServer(
         updateBuffers(parsed)
 
         updateHalfSecond(parsed)
+        val activeGestures = inRangeHalfSecond()
+        val message = if (activeGestures.isEmpty()) {
+            "No gesture detected"
+        } else {
+            activeGestures.joinToString(" | ") { it.message }
+        }
+        latestGestureMessage.set(message)
+
+        return """{
+            "status":"ok",
+            "received":${parsed.size},
+            "total":${allSamples.size},
+            "last_second":${lastSecondSamples.size}
+        }"""
+    }
+
+    private fun handleGyroDataFullReset(body: String): String {
+        val json = try {
+            JSONObject(body)
+        } catch (e: Exception) {
+            return """{"status":"error","detail":"Invalid JSON"}"""
+        }
+
+        val packed = json.optString("data", "").trim()
+        if (packed.isEmpty()) {
+            return """{"status":"error","detail":"Empty data"}"""
+        }
+
+        val parsed = parsePackedData(packed)
+        if (parsed.isEmpty()) {
+            return """{"status":"error","detail":"No valid samples"}"""
+        }
+
+        replaceBuffers(parsed)
+
         val activeGestures = inRangeHalfSecond()
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
@@ -204,6 +239,31 @@ class ImuHttpServer(
             while (it.hasNext()) {
                 if (it.next().ts < threshold) {
                     it.remove()
+                }
+            }
+        }
+    }
+
+    private fun replaceBuffers(allData: List<ImuSample>) {
+        if (allData.isEmpty()) return
+
+        synchronized(lock) {
+            allSamples.clear()
+            lastSecondSamples.clear()
+            lastHalfSecond.clear()
+
+            allSamples.addAll(allData)
+
+            val newestTs = allData.maxOf { it.ts }
+            val lastSecondThreshold = newestTs - 1000L
+            val lastHalfSecondThreshold = newestTs - 500L
+
+            allData.forEach { s ->
+                if (s.ts >= lastSecondThreshold) {
+                    lastSecondSamples.add(s)
+                }
+                if (s.ts >= lastHalfSecondThreshold) {
+                    lastHalfSecond.add(s)
                 }
             }
         }
