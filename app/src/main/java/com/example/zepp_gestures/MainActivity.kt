@@ -181,7 +181,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exportAllCsv() {
-        val samples = server?.getAllSamples().orEmpty()
+        val samples = server?.getSessionSamples().orEmpty()
         if (samples.isEmpty()) {
             Toast.makeText(this, "No samples to export", Toast.LENGTH_SHORT).show()
             return

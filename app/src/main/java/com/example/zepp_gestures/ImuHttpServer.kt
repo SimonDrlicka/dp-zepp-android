@@ -28,6 +28,7 @@ class ImuHttpServer(
     }
 
     private val allSamples = mutableListOf<ImuSample>()
+    private val sessionSamples = LinkedHashSet<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
 
     private val lock = Any()
@@ -195,6 +196,7 @@ class ImuHttpServer(
             return """{"status":"error","detail":"No valid samples"}"""
         }
 
+        appendToSessionSamples(parsed)
         updateHalfSecond(parsed)
         val activeGestures = inRangeHalfSecond()
         val modeChange = updateMode(activeGestures)
@@ -233,6 +235,7 @@ class ImuHttpServer(
             return """{"status":"error","detail":"No valid samples"}"""
         }
 
+        appendToSessionSamples(parsed)
         val activeGestures = inRangeHalfSecond()
         val modeChange = updateMode(activeGestures)
         replaceBuffers(parsed)
@@ -251,6 +254,13 @@ class ImuHttpServer(
             "total":${allSamples.size},
             "last_second":${lastSecondSamples.size}
         }"""
+    }
+
+    private fun appendToSessionSamples(newSamples: List<ImuSample>) {
+        if (newSamples.isEmpty()) return
+        synchronized(lock) {
+            sessionSamples.addAll(newSamples)
+        }
     }
 
     private fun parsePackedData(packed: String): List<ImuSample> {
@@ -347,6 +357,10 @@ class ImuHttpServer(
 
     fun getAllSamples(): List<ImuSample> = synchronized(lock) {
         allSamples.toList()
+    }
+
+    fun getSessionSamples(): List<ImuSample> = synchronized(lock) {
+        sessionSamples.toList()
     }
 
     fun getMode(): AppMode = currentMode.get()
