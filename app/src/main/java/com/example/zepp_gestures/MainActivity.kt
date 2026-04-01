@@ -127,6 +127,10 @@ class MainActivity : AppCompatActivity() {
 
         stopBtn.setOnClickListener {
             val (blue, red) = server?.getPoints() ?: (0 to 0)
+            val samples = server?.getSessionSamples().orEmpty()
+            if (samples.isNotEmpty()) {
+                exportCsv(samples, "stop_server_export")
+            }
             server?.stop()
             server = null
             handler.removeCallbacks(uiUpdater)
