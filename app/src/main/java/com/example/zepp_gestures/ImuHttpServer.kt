@@ -90,11 +90,23 @@ class ImuHttpServer(
 
         val hasHandUp = activeGestures.any { it.name == "Hand up" }
         val hasHandDown = activeGestures.any { it.name == "Hand down" }
+        val hasRedWarning = activeGestures.any { it.name == "Red warning" }
+        val hasBlueWarning = activeGestures.any { it.name == "Warning blue" }
 
-        if (hasHandUp) {
-            currentMode.set(GestureMode.GESTURE)
-        } else if (hasHandDown) {
-            currentMode.set(GestureMode.WAITING)
+        if (previous.isWarning) {
+            if (hasHandDown) {
+                currentMode.set(GestureMode.WAITING)
+            }
+        } else {
+            if (hasHandDown) {
+                currentMode.set(GestureMode.WAITING)
+            } else if (hasRedWarning) {
+                currentMode.set(GestureMode.WARNING_RED)
+            } else if (hasBlueWarning) {
+                currentMode.set(GestureMode.WARNING_BLUE)
+            } else if (hasHandUp) {
+                currentMode.set(GestureMode.GESTURE)
+            }
         }
         return previous to currentMode.get()
     }
@@ -103,12 +115,12 @@ class ImuHttpServer(
         val (previous, current) = modeChange
         var segmentToExport: List<ImuSample>? = null
         synchronized(lock) {
-            if (current == GestureMode.GESTURE) {
-                if (previous != GestureMode.GESTURE) {
+            if (current.isScoring) {
+                if (!previous.isScoring) {
                     captureSamples.clear()
                 }
                 captureSamples.addAll(newSamples)
-            } else if (previous == GestureMode.GESTURE && current == GestureMode.WAITING && captureSamples.isNotEmpty()) {
+            } else if (previous.isScoring && current == GestureMode.WAITING && captureSamples.isNotEmpty()) {
                 segmentToExport = captureSamples.toList()
                 captureSamples.clear()
             }
@@ -117,17 +129,18 @@ class ImuHttpServer(
     }
 
     private fun updatePoints(newSamples: List<ImuSample>) {
-        if (currentMode.get() != GestureMode.GESTURE) return
+        val mode = currentMode.get()
+        if (!mode.isScoring) return
         synchronized(lock) {
             val threshold = GestureConfig.POINT_GYRO_THRESHOLD * GestureConfig.POINT_GYRO_SCALE
             newSamples.forEach { s ->
                 if (pointArmed) {
                     when {
-                        s.gx < -threshold -> {
+                        s.gx < -threshold && mode != GestureMode.WARNING_BLUE -> {
                             bluePoints.incrementAndGet()
                             pointArmed = false
                         }
-                        s.gx > threshold -> {
+                        s.gx > threshold && mode != GestureMode.WARNING_RED -> {
                             redPoints.incrementAndGet()
                             pointArmed = false
                         }
@@ -142,6 +155,7 @@ class ImuHttpServer(
     private fun resolveVibration(modeChange: Pair<GestureMode, GestureMode>): Int {
         val (previous, current) = modeChange
         if (previous == current) return 0
+        if (current.isWarning) return 2
         return 1
     }
 

@@ -46,6 +46,8 @@ class MainActivity : AppCompatActivity() {
             modeText.text = when (mode) {
                 GestureMode.GESTURE -> "Mode: gesture"
                 GestureMode.WAITING -> "Mode: waiting"
+                GestureMode.WARNING_RED -> "Mode: warning red"
+                GestureMode.WARNING_BLUE -> "Mode: warning blue"
             }
             val (blue, red) = server?.getPoints() ?: (0 to 0)
             pointsText.text = "Blue: $blue | Red: $red"
