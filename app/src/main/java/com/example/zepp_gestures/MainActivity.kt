@@ -42,10 +42,10 @@ class MainActivity : AppCompatActivity() {
     private val uiUpdater = object : Runnable {
         override fun run() {
             inRangeText.text = latestGestureMessage.get()
-            val mode = server?.getMode() ?: ImuHttpServer.AppMode.WAITING
+            val mode = server?.getMode() ?: GestureMode.WAITING
             modeText.text = when (mode) {
-                ImuHttpServer.AppMode.GESTURE -> "Mode: gesture"
-                ImuHttpServer.AppMode.WAITING -> "Mode: waiting"
+                GestureMode.GESTURE -> "Mode: gesture"
+                GestureMode.WAITING -> "Mode: waiting"
             }
             val (blue, red) = server?.getPoints() ?: (0 to 0)
             pointsText.text = "Blue: $blue | Red: $red"

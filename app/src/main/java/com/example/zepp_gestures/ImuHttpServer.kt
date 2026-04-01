@@ -22,11 +22,6 @@ class ImuHttpServer(
     port: Int = 8080,
     private val onGestureSegmentReady: (List<ImuSample>) -> Unit = {}
 ) : NanoHTTPD(port) {
-    enum class AppMode {
-        WAITING,
-        GESTURE
-    }
-
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
@@ -34,7 +29,7 @@ class ImuHttpServer(
     private val lock = Any()
 
     private val lastHalfSecond = mutableListOf<ImuSample>()
-    private val currentMode = AtomicReference(AppMode.WAITING)
+    private val currentMode = AtomicReference(GestureMode.WAITING)
     private val captureSamples = mutableListOf<ImuSample>()
     private val bluePoints = AtomicInteger(0)
     private val redPoints = AtomicInteger(0)
@@ -89,7 +84,7 @@ class ImuHttpServer(
         return active
     }
 
-    private fun updateMode(activeGestures: List<GestureDefinition>): Pair<AppMode, AppMode> {
+    private fun updateMode(activeGestures: List<GestureDefinition>): Pair<GestureMode, GestureMode> {
         val previous = currentMode.get()
         if (activeGestures.isEmpty()) return previous to previous
 
@@ -97,23 +92,23 @@ class ImuHttpServer(
         val hasHandDown = activeGestures.any { it.name == "Hand down" }
 
         if (hasHandUp) {
-            currentMode.set(AppMode.GESTURE)
+            currentMode.set(GestureMode.GESTURE)
         } else if (hasHandDown) {
-            currentMode.set(AppMode.WAITING)
+            currentMode.set(GestureMode.WAITING)
         }
         return previous to currentMode.get()
     }
 
-    private fun updateCapture(newSamples: List<ImuSample>, modeChange: Pair<AppMode, AppMode>) {
+    private fun updateCapture(newSamples: List<ImuSample>, modeChange: Pair<GestureMode, GestureMode>) {
         val (previous, current) = modeChange
         var segmentToExport: List<ImuSample>? = null
         synchronized(lock) {
-            if (current == AppMode.GESTURE) {
-                if (previous != AppMode.GESTURE) {
+            if (current == GestureMode.GESTURE) {
+                if (previous != GestureMode.GESTURE) {
                     captureSamples.clear()
                 }
                 captureSamples.addAll(newSamples)
-            } else if (previous == AppMode.GESTURE && current == AppMode.WAITING && captureSamples.isNotEmpty()) {
+            } else if (previous == GestureMode.GESTURE && current == GestureMode.WAITING && captureSamples.isNotEmpty()) {
                 segmentToExport = captureSamples.toList()
                 captureSamples.clear()
             }
@@ -122,7 +117,7 @@ class ImuHttpServer(
     }
 
     private fun updatePoints(newSamples: List<ImuSample>) {
-        if (currentMode.get() != AppMode.GESTURE) return
+        if (currentMode.get() != GestureMode.GESTURE) return
         synchronized(lock) {
             val threshold = GestureConfig.POINT_GYRO_THRESHOLD * GestureConfig.POINT_GYRO_SCALE
             newSamples.forEach { s ->
@@ -142,6 +137,12 @@ class ImuHttpServer(
                 }
             }
         }
+    }
+
+    private fun resolveVibration(modeChange: Pair<GestureMode, GestureMode>): Int {
+        val (previous, current) = modeChange
+        if (previous == current) return 0
+        return 1
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -210,11 +211,23 @@ class ImuHttpServer(
         }
         latestGestureMessage.set(message)
 
+        val blue = bluePoints.get()
+        val red = redPoints.get()
+        val score = "$blue-$red"
+        val vibration = resolveVibration(modeChange)
+
         return """{
             "status":"ok",
             "received":${parsed.size},
             "total":${allSamples.size},
-            "last_second":${lastSecondSamples.size}
+            "last_second":${lastSecondSamples.size},
+            "blue_points":$blue,
+            "red_points":$red,
+            "bluePoints":$blue,
+            "redPoints":$red,
+            "score":"$score",
+            "message":"$message",
+            "vibration":$vibration
         }"""
     }
 
@@ -236,9 +249,9 @@ class ImuHttpServer(
         }
 
         appendToSessionSamples(parsed)
+        replaceBuffers(parsed)
         val activeGestures = inRangeHalfSecond()
         val modeChange = updateMode(activeGestures)
-        replaceBuffers(parsed)
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
         val message = if (activeGestures.isEmpty()) {
@@ -248,11 +261,23 @@ class ImuHttpServer(
         }
         latestGestureMessage.set(message)
 
+        val blue = bluePoints.get()
+        val red = redPoints.get()
+        val score = "$blue-$red"
+        val vibration = resolveVibration(modeChange)
+
         return """{
             "status":"ok",
             "received":${parsed.size},
             "total":${allSamples.size},
-            "last_second":${lastSecondSamples.size}
+            "last_second":${lastSecondSamples.size},
+            "blue_points":$blue,
+            "red_points":$red,
+            "bluePoints":$blue,
+            "redPoints":$red,
+            "score":"$score",
+            "message":"$message",
+            "vibration":$vibration
         }"""
     }
 
@@ -363,7 +388,7 @@ class ImuHttpServer(
         sessionSamples.toList()
     }
 
-    fun getMode(): AppMode = currentMode.get()
+    fun getMode(): GestureMode = currentMode.get()
 
     fun getPoints(): Pair<Int, Int> = bluePoints.get() to redPoints.get()
 

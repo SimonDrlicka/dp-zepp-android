@@ -42,6 +42,30 @@ object GestureConfig {
                 azMin = 0.0,
                 azMax = 3.0
             )
+        ),
+        GestureDefinition(
+            name = "Red warning",
+            message = "Gesture detected: red warning",
+            bands = AccelBands(
+                axMin = -7.1,
+                axMax = -4.62,
+                ayMin = -1.58,
+                ayMax = 0.7,
+                azMin = 7.01,
+                azMax = 9.01
+            )
+        ),
+        GestureDefinition(
+            name = "Warning blue",
+            message = "Gesture detected: warning blue",
+            bands = AccelBands(
+                axMin = -6.41,
+                axMax = -3.12,
+                ayMin = -10.42,
+                ayMax = -7.67,
+                azMin = -1.63,
+                azMax = 3.89
+            )
         )
     )
 }
