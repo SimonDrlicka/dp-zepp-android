@@ -66,6 +66,42 @@ object GestureConfig {
                 azMin = -1.63,
                 azMax = 3.89
             )
+        ),
+        GestureDefinition(
+            name = "Passivity red",
+            message = "Gesture detected: passivity red",
+            bands = AccelBands(
+                axMin = -1.43,
+                axMax = 1.46,
+                ayMin = -3.41,
+                ayMax = 4.94,
+                azMin = 7.72,
+                azMax = 12.44
+            )
+        ),
+        GestureDefinition(
+            name = "Passivity blue",
+            message = "Gesture detected: passivity blue",
+            bands = AccelBands(
+                axMin = -0.6,
+                axMax = 1.08,
+                ayMin = -4.54,
+                ayMax = 1.27,
+                azMin = -10.41,
+                azMax = -7.99
+            )
+        ),
+        GestureDefinition(
+            name = "Touche",
+            message = "Gesture detected: touche",
+            bands = AccelBands(
+                axMin = 5.14,
+                axMax = 6.6,
+                ayMin = -8.43,
+                ayMax = -6.0,
+                azMin = -1.1,
+                azMax = 4.73
+            )
         )
     )
 }
