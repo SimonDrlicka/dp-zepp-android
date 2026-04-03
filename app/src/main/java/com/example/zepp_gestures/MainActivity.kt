@@ -130,8 +130,12 @@ class MainActivity : AppCompatActivity() {
         stopBtn.setOnClickListener {
             val (blue, red) = server?.getPoints() ?: (0 to 0)
             val samples = server?.getSessionSamples().orEmpty()
+            val events = server?.getMatchEvents().orEmpty()
             if (samples.isNotEmpty()) {
                 exportCsv(samples, "stop_server_export")
+            }
+            if (events.isNotEmpty()) {
+                exportMatchEventsCsv(events, blue, red)
             }
             server?.stop()
             server = null
@@ -238,6 +242,45 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Exported to Downloads/$fileName", Toast.LENGTH_LONG).show()
         } catch (e: IOException) {
             Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun exportMatchEventsCsv(events: List<MatchEvent>, blue: Int, red: Int) {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val fileName = "match_events_$timestamp.csv"
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+
+        val csv = StringBuilder()
+        csv.append("# result: blue=$blue red=$red\n")
+        csv.append("timestamp,datetime,event\n")
+        events.forEach { e ->
+            csv.append(e.ts).append(',')
+                .append(fmt.format(Date(e.ts))).append(',')
+                .append(e.event).append('\n')
+        }
+
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+        }
+
+        val resolver = contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        if (uri == null) {
+            Toast.makeText(this, "Failed to create events file", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            resolver.openOutputStream(uri)?.use { out ->
+                out.write(csv.toString().toByteArray(Charsets.UTF_8))
+            } ?: run {
+                Toast.makeText(this, "Failed to open events file", Toast.LENGTH_SHORT).show()
+                return
+            }
+            Toast.makeText(this, "Events exported to Downloads/$fileName", Toast.LENGTH_LONG).show()
+        } catch (e: IOException) {
+            Toast.makeText(this, "Events export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 

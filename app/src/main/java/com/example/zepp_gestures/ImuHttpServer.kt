@@ -6,6 +6,11 @@ import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
+data class MatchEvent(
+    val ts: Long,
+    val event: String
+)
+
 data class ImuSample(
     val gx: Double,
     val gy: Double,
@@ -34,6 +39,15 @@ class ImuHttpServer(
     private val bluePoints = AtomicInteger(0)
     private val redPoints = AtomicInteger(0)
     private var pointArmed = true
+
+    private val matchEvents = mutableListOf<MatchEvent>()
+    private val previousActiveEventGestures = mutableSetOf<String>()
+
+    companion object {
+        private val EVENT_GESTURE_NAMES = setOf(
+            "Passivity red", "Passivity blue", "Touche"
+        )
+    }
 
     private fun updateHalfSecond(newSamples: List<ImuSample>) {
         if (newSamples.isEmpty()) return
@@ -138,10 +152,12 @@ class ImuHttpServer(
                     when {
                         s.gx < -threshold && mode != GestureMode.WARNING_BLUE -> {
                             bluePoints.incrementAndGet()
+                            matchEvents.add(MatchEvent(s.ts, "Blue point"))
                             pointArmed = false
                         }
                         s.gx > threshold && mode != GestureMode.WARNING_RED -> {
                             redPoints.incrementAndGet()
+                            matchEvents.add(MatchEvent(s.ts, "Red point"))
                             pointArmed = false
                         }
                     }
@@ -149,6 +165,37 @@ class ImuHttpServer(
                     pointArmed = true
                 }
             }
+        }
+    }
+
+    private fun updateMatchEvents(
+        activeGestures: List<GestureDefinition>,
+        modeChange: Pair<GestureMode, GestureMode>,
+        latestTs: Long
+    ) {
+        val (previous, current) = modeChange
+        synchronized(lock) {
+            // Log warning mode transitions
+            if (!previous.isWarning && current == GestureMode.WARNING_RED) {
+                matchEvents.add(MatchEvent(latestTs, "Warning red"))
+            }
+            if (!previous.isWarning && current == GestureMode.WARNING_BLUE) {
+                matchEvents.add(MatchEvent(latestTs, "Warning blue"))
+            }
+
+            // Log one-shot event gestures (passivity, touche) with deduplication
+            val currentEventNames = activeGestures
+                .map { it.name }
+                .filter { it in EVENT_GESTURE_NAMES }
+                .toSet()
+
+            for (name in currentEventNames) {
+                if (name !in previousActiveEventGestures) {
+                    matchEvents.add(MatchEvent(latestTs, name))
+                }
+            }
+            previousActiveEventGestures.clear()
+            previousActiveEventGestures.addAll(currentEventNames)
         }
     }
 
@@ -218,6 +265,7 @@ class ImuHttpServer(
         updateBuffers(parsed)
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
+        updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -268,6 +316,7 @@ class ImuHttpServer(
         val modeChange = updateMode(activeGestures)
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
+        updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -403,6 +452,10 @@ class ImuHttpServer(
     }
 
     fun getMode(): GestureMode = currentMode.get()
+
+    fun getMatchEvents(): List<MatchEvent> = synchronized(lock) {
+        matchEvents.toList()
+    }
 
     fun getPoints(): Pair<Int, Int> = bluePoints.get() to redPoints.get()
 
