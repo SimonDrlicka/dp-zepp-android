@@ -43,10 +43,12 @@ class ImuHttpServer(
     private val matchEvents = mutableListOf<MatchEvent>()
     private val previousActiveEventGestures = mutableSetOf<String>()
 
+    private var passivityRedDeadline: Long = 0L
+    private var passivityBlueDeadline: Long = 0L
+
     companion object {
-        private val EVENT_GESTURE_NAMES = setOf(
-            "Passivity red", "Passivity blue", "Touche"
-        )
+        private const val PASSIVITY_TIMEOUT_MS = 30_000L
+        private val EVENT_GESTURE_NAMES = setOf("Touche")
     }
 
     private fun updateHalfSecond(newSamples: List<ImuSample>) {
@@ -153,11 +155,15 @@ class ImuHttpServer(
                         s.gx < -threshold && mode != GestureMode.WARNING_BLUE -> {
                             bluePoints.incrementAndGet()
                             matchEvents.add(MatchEvent(s.ts, "Blue point"))
+                            passivityRedDeadline = 0L
+                            passivityBlueDeadline = 0L
                             pointArmed = false
                         }
                         s.gx > threshold && mode != GestureMode.WARNING_RED -> {
                             redPoints.incrementAndGet()
                             matchEvents.add(MatchEvent(s.ts, "Red point"))
+                            passivityRedDeadline = 0L
+                            passivityBlueDeadline = 0L
                             pointArmed = false
                         }
                     }
@@ -196,6 +202,37 @@ class ImuHttpServer(
             }
             previousActiveEventGestures.clear()
             previousActiveEventGestures.addAll(currentEventNames)
+        }
+    }
+
+    private fun updatePassivity(activeGestures: List<GestureDefinition>, latestTs: Long) {
+        synchronized(lock) {
+            // Start new timer only in WAITING mode and only if no passivity is already active
+            val anyPassivityActive = passivityRedDeadline > 0 || passivityBlueDeadline > 0
+            if (currentMode.get() == GestureMode.WAITING && !anyPassivityActive) {
+                val hasPassivityRed = activeGestures.any { it.name == "Passivity red" }
+                val hasPassivityBlue = activeGestures.any { it.name == "Passivity blue" }
+
+                if (hasPassivityRed) {
+                    passivityRedDeadline = latestTs + PASSIVITY_TIMEOUT_MS
+                    matchEvents.add(MatchEvent(latestTs, "Passivity red"))
+                } else if (hasPassivityBlue) {
+                    passivityBlueDeadline = latestTs + PASSIVITY_TIMEOUT_MS
+                    matchEvents.add(MatchEvent(latestTs, "Passivity blue"))
+                }
+            }
+
+            // Check expired timers (runs in any mode)
+            if (passivityRedDeadline > 0 && latestTs >= passivityRedDeadline) {
+                bluePoints.incrementAndGet()
+                matchEvents.add(MatchEvent(latestTs, "Passivity red penalty (blue +1)"))
+                passivityRedDeadline = 0L
+            }
+            if (passivityBlueDeadline > 0 && latestTs >= passivityBlueDeadline) {
+                redPoints.incrementAndGet()
+                matchEvents.add(MatchEvent(latestTs, "Passivity blue penalty (red +1)"))
+                passivityBlueDeadline = 0L
+            }
         }
     }
 
@@ -266,6 +303,7 @@ class ImuHttpServer(
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
         updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
+        updatePassivity(activeGestures, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -317,6 +355,7 @@ class ImuHttpServer(
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
         updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
+        updatePassivity(activeGestures, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -464,6 +503,8 @@ class ImuHttpServer(
         redPoints.set(0)
         synchronized(lock) {
             pointArmed = true
+            passivityRedDeadline = 0L
+            passivityBlueDeadline = 0L
         }
     }
 }
