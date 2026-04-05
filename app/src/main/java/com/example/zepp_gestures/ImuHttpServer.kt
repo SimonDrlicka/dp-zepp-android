@@ -525,6 +525,10 @@ class ImuHttpServer(
         matchEvents.toList()
     }
 
+    fun getPassivityDeadlines(): Pair<Long, Long> = synchronized(lock) {
+        passivityRedDeadline to passivityBlueDeadline
+    }
+
     fun getPoints(): Pair<Int, Int> = bluePoints.get() to redPoints.get()
 
     fun resetPoints() {
