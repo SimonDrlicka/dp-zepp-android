@@ -21,6 +21,11 @@ data class ImuSample(
     val ts: Long
 )
 
+data class VibrationCommand(
+    val count: Int,
+    val duration: String = "short"
+)
+
 class ImuHttpServer(
     private val gestureConfig: List<GestureDefinition>,
     private val latestGestureMessage: AtomicReference<String>,
@@ -178,7 +183,7 @@ class ImuHttpServer(
         activeGestures: List<GestureDefinition>,
         modeChange: Pair<GestureMode, GestureMode>,
         latestTs: Long
-    ) {
+    ): Set<String> {
         val (previous, current) = modeChange
         synchronized(lock) {
             // Log warning mode transitions
@@ -195,18 +200,24 @@ class ImuHttpServer(
                 .filter { it in EVENT_GESTURE_NAMES }
                 .toSet()
 
+            val newlyFired = mutableSetOf<String>()
             for (name in currentEventNames) {
                 if (name !in previousActiveEventGestures) {
                     matchEvents.add(MatchEvent(latestTs, name))
+                    newlyFired.add(name)
                 }
             }
             previousActiveEventGestures.clear()
             previousActiveEventGestures.addAll(currentEventNames)
+            return newlyFired
         }
     }
 
-    private fun updatePassivity(activeGestures: List<GestureDefinition>, latestTs: Long) {
+    private fun updatePassivity(activeGestures: List<GestureDefinition>, latestTs: Long): Pair<Boolean, Boolean> {
         synchronized(lock) {
+            var started = false
+            var expired = false
+
             // Start new timer only in WAITING mode and only if no passivity is already active
             val anyPassivityActive = passivityRedDeadline > 0 || passivityBlueDeadline > 0
             if (currentMode.get() == GestureMode.WAITING && !anyPassivityActive) {
@@ -216,9 +227,11 @@ class ImuHttpServer(
                 if (hasPassivityRed) {
                     passivityRedDeadline = latestTs + PASSIVITY_TIMEOUT_MS
                     matchEvents.add(MatchEvent(latestTs, "Passivity red"))
+                    started = true
                 } else if (hasPassivityBlue) {
                     passivityBlueDeadline = latestTs + PASSIVITY_TIMEOUT_MS
                     matchEvents.add(MatchEvent(latestTs, "Passivity blue"))
+                    started = true
                 }
             }
 
@@ -227,20 +240,34 @@ class ImuHttpServer(
                 bluePoints.incrementAndGet()
                 matchEvents.add(MatchEvent(latestTs, "Passivity red penalty (blue +1)"))
                 passivityRedDeadline = 0L
+                expired = true
             }
             if (passivityBlueDeadline > 0 && latestTs >= passivityBlueDeadline) {
                 redPoints.incrementAndGet()
                 matchEvents.add(MatchEvent(latestTs, "Passivity blue penalty (red +1)"))
                 passivityBlueDeadline = 0L
+                expired = true
             }
+
+            return started to expired
         }
     }
 
-    private fun resolveVibration(modeChange: Pair<GestureMode, GestureMode>): Int {
+    private fun resolveVibration(
+        modeChange: Pair<GestureMode, GestureMode>,
+        passivityStarted: Boolean,
+        passivityExpired: Boolean,
+        newEventGestures: Set<String>
+    ): VibrationCommand {
+        if (passivityExpired) return VibrationCommand(1, "long")
+        if ("Touche" in newEventGestures) return VibrationCommand(5, "short")
+        if (passivityStarted) return VibrationCommand(2, "short")
         val (previous, current) = modeChange
-        if (previous == current) return 0
-        if (current.isWarning) return 2
-        return 1
+        if (previous != current) {
+            if (current.isWarning) return VibrationCommand(2, "short")
+            return VibrationCommand(1, "short")
+        }
+        return VibrationCommand(0, "short")
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -302,8 +329,8 @@ class ImuHttpServer(
         updateBuffers(parsed)
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
-        updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
-        updatePassivity(activeGestures, parsed.last().ts)
+        val newEventGestures = updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
+        val (passivityStarted, passivityExpired) = updatePassivity(activeGestures, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -314,7 +341,7 @@ class ImuHttpServer(
         val blue = bluePoints.get()
         val red = redPoints.get()
         val score = "$blue-$red"
-        val vibration = resolveVibration(modeChange)
+        val vibrationCmd = resolveVibration(modeChange, passivityStarted, passivityExpired, newEventGestures)
 
         return """{
             "status":"ok",
@@ -327,7 +354,8 @@ class ImuHttpServer(
             "redPoints":$red,
             "score":"$score",
             "message":"$message",
-            "vibration":$vibration
+            "vibration":${vibrationCmd.count},
+            "vibrationDuration":"${vibrationCmd.duration}"
         }"""
     }
 
@@ -354,8 +382,8 @@ class ImuHttpServer(
         val modeChange = updateMode(activeGestures)
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
-        updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
-        updatePassivity(activeGestures, parsed.last().ts)
+        val newEventGestures = updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
+        val (passivityStarted, passivityExpired) = updatePassivity(activeGestures, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -366,7 +394,7 @@ class ImuHttpServer(
         val blue = bluePoints.get()
         val red = redPoints.get()
         val score = "$blue-$red"
-        val vibration = resolveVibration(modeChange)
+        val vibrationCmd = resolveVibration(modeChange, passivityStarted, passivityExpired, newEventGestures)
 
         return """{
             "status":"ok",
@@ -379,7 +407,8 @@ class ImuHttpServer(
             "redPoints":$red,
             "score":"$score",
             "message":"$message",
-            "vibration":$vibration
+            "vibration":${vibrationCmd.count},
+            "vibrationDuration":"${vibrationCmd.duration}"
         }"""
     }
 
