@@ -18,6 +18,7 @@ class GraphView @JvmOverloads constructor(
 
     data class Sample(val ts: Long, val values: FloatArray)
     data class Band(val seriesIndex: Int, val min: Float, val max: Float, val color: Int)
+    data class HorizontalLine(val value: Float, val color: Int)
 
     private val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#3C3C3C")
@@ -43,6 +44,7 @@ class GraphView @JvmOverloads constructor(
     private var samples: List<Sample> = emptyList()
     private var labels: List<String> = emptyList()
     private var bands: List<Band> = emptyList()
+    private var horizontalLines: List<HorizontalLine> = emptyList()
     private var fixedMin: Float? = null
     private var fixedMax: Float? = null
 
@@ -54,6 +56,11 @@ class GraphView @JvmOverloads constructor(
 
     fun setBands(bands: List<Band>) {
         this.bands = bands
+        invalidate()
+    }
+
+    fun setHorizontalLines(lines: List<HorizontalLine>) {
+        this.horizontalLines = lines
         invalidate()
     }
 
@@ -116,6 +123,7 @@ class GraphView @JvmOverloads constructor(
         val valRange = max(0.0001f, maxVal - minVal)
 
         drawBands(canvas, left, right, top, bottom, minVal, maxVal)
+        drawHorizontalLines(canvas, left, right, top, bottom, minVal, maxVal)
 
         val seriesCount = samples.maxOf { it.values.size }
         for (seriesIndex in 0 until seriesCount) {
@@ -161,6 +169,29 @@ class GraphView @JvmOverloads constructor(
                 style = Paint.Style.FILL
             }
             canvas.drawRect(left, min(yMin, yMax), right, max(yMin, yMax), bandPaint)
+        }
+    }
+
+    private fun drawHorizontalLines(
+        canvas: Canvas,
+        left: Float,
+        right: Float,
+        top: Float,
+        bottom: Float,
+        minVal: Float,
+        maxVal: Float
+    ) {
+        if (horizontalLines.isEmpty()) return
+
+        val valRange = max(0.0001f, maxVal - minVal)
+        horizontalLines.forEach { line ->
+            val y = bottom - (line.value - minVal) / valRange * (bottom - top)
+            val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = line.color
+                strokeWidth = dp(1.5f)
+                style = Paint.Style.STROKE
+            }
+            canvas.drawLine(left, y, right, y, linePaint)
         }
     }
 

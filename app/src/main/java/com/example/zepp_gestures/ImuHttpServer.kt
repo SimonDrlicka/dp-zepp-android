@@ -35,6 +35,7 @@ class ImuHttpServer(
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
+    private val receiveRequestTimestamps = mutableListOf<Long>()
 
     private val lock = Any()
 
@@ -55,8 +56,18 @@ class ImuHttpServer(
         private const val PASSIVITY_TIMEOUT_MS = 30_000L
         private const val GESTURE_WINDOW_MS = 300L
         private const val GESTURE_MATCH_RATIO = 0.9
+        private const val RECEIVE_FREQ_WINDOW_MS = 1_000L
         private val EVENT_GESTURE_NAMES = setOf("Touche")
         private val IGNORED_GESTURE_NAMES = setOf("Hand up", "Hand down")
+    }
+
+    private fun recordReceiveRequest() {
+        val now = System.currentTimeMillis()
+        synchronized(lock) {
+            receiveRequestTimestamps.add(now)
+            val threshold = now - RECEIVE_FREQ_WINDOW_MS
+            receiveRequestTimestamps.removeAll { it < threshold }
+        }
     }
 
     private fun updateHalfSecond(newSamples: List<ImuSample>) {
@@ -319,6 +330,8 @@ class ImuHttpServer(
     }
 
     private fun handleGyroDataFull(body: String): String {
+        recordReceiveRequest()
+
         val json = try {
             JSONObject(body)
         } catch (e: Exception) {
@@ -373,6 +386,8 @@ class ImuHttpServer(
     }
 
     private fun handleGyroDataFullReset(body: String): String {
+        recordReceiveRequest()
+
         val json = try {
             JSONObject(body)
         } catch (e: Exception) {
@@ -543,6 +558,17 @@ class ImuHttpServer(
     }
 
     fun getPoints(): Pair<Int, Int> = bluePoints.get() to redPoints.get()
+
+    fun getReceiveRequestFrequencyHz(): Double = synchronized(lock) {
+        if (receiveRequestTimestamps.size < 2) {
+            return@synchronized if (receiveRequestTimestamps.isEmpty()) 0.0 else -1.0
+        }
+
+        val minTs = receiveRequestTimestamps.minOrNull() ?: return@synchronized 0.0
+        val maxTs = receiveRequestTimestamps.maxOrNull() ?: return@synchronized 0.0
+        val durationMs = (maxTs - minTs).coerceAtLeast(1L)
+        (receiveRequestTimestamps.size - 1) * 1000.0 / durationMs
+    }
 
     fun resetPoints() {
         bluePoints.set(0)

@@ -32,7 +32,7 @@ class DebugFragment : Fragment() {
 
     private val gestures = GestureConfig.gestures
     private var selectedGesture: GestureDefinition = gestures.first()
-    private var graphDisplayMode: GraphDisplayMode = GraphDisplayMode.LAST_SECOND
+    private var graphDisplayMode: GraphDisplayMode = GraphDisplayMode.LAST_20_SECONDS
 
     private val main: MainActivity get() = activity as MainActivity
 
@@ -98,6 +98,12 @@ class DebugFragment : Fragment() {
         passivityTimerText = view.findViewById(R.id.passivityTimerText)
 
         gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
+        gyroGraph.setHorizontalLines(
+            listOf(
+                GraphView.HorizontalLine(700f, 0x66D62728),
+                GraphView.HorizontalLine(-700f, 0x66D62728)
+            )
+        )
         accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
         applyAccelBands(selectedGesture)
         accelGraph.setFixedRange(-10f, 10f)
@@ -222,15 +228,13 @@ class DebugFragment : Fragment() {
     }
 
     private fun formatReceiveFrequency(server: ImuHttpServer?): String {
-        val samples = server?.getLastSecondSamples().orEmpty()
-        if (samples.size < 2) {
-            return if (samples.isEmpty()) "-" else "..."
+        val frequencyHz = server?.getReceiveRequestFrequencyHz() ?: 0.0
+        if (frequencyHz == 0.0) {
+            return "-"
         }
-
-        val minTs = samples.minOf { it.ts }
-        val maxTs = samples.maxOf { it.ts }
-        val durationMs = (maxTs - minTs).coerceAtLeast(1L)
-        val avgHz = (samples.size - 1) * 1000.0 / durationMs
-        return "${"%.1f".format(avgHz)} Hz"
+        if (frequencyHz < 0.0) {
+            return "..."
+        }
+        return "${"%.1f".format(frequencyHz)} Hz"
     }
 }

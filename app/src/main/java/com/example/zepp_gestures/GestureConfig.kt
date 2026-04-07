@@ -23,12 +23,12 @@ object GestureConfig {
             name = "Hand up",
             message = "Gesture detected: hand up",
             bands = AccelBands(
-                axMin = 8.5,
+                axMin = 7.69,
                 axMax = 10.5,
-                ayMin = -3.87,
-                ayMax = 0.71,
+                ayMin = -3.17,
+                ayMax = 2.81,
                 azMin = 0.67,
-                azMax = 4.01
+                azMax = 6.51
             )
         ),
         GestureDefinition(
@@ -37,8 +37,8 @@ object GestureConfig {
             bands = AccelBands(
                 axMin = -12.84,
                 axMax = -7.39,
-                ayMin = -4.0,
-                ayMax = -2.0,
+                ayMin = -4.8,
+                ayMax = 0.0,
                 azMin = 0.0,
                 azMax = 3.0
             )
