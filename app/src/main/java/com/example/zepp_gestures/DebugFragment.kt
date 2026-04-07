@@ -58,7 +58,7 @@ class DebugFragment : Fragment() {
             }
             modeText.text = "$modeLabel | $gestureInfo"
             val (blue, red) = server?.getPoints() ?: (0 to 0)
-            pointsText.text = "Blue: $blue | Red: $red | Freq: ${formatReceiveFrequency(server)}"
+            pointsText.text = "Blue: $blue | Red: $red"
             val samples = when (graphDisplayMode) {
                 GraphDisplayMode.LAST_SECOND -> server?.getLastSecondSamples().orEmpty()
                 GraphDisplayMode.LAST_20_SECONDS -> getLastTwentySecondSamples(server)

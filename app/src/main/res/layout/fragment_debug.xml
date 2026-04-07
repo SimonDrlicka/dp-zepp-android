@@ -68,7 +68,8 @@
         android:layout_height="wrap_content"
         android:text="ts: -"
         android:textSize="12sp"
-        android:paddingBottom="12dp"/>
+        android:paddingBottom="12dp"
+        android:visibility="gone"/>
 
     <TextView
         android:id="@+id/accelLabel"
@@ -96,7 +97,8 @@
         android:layout_height="wrap_content"
         android:text="ts: -"
         android:textSize="12sp"
-        android:paddingBottom="12dp"/>
+        android:paddingBottom="12dp"
+        android:visibility="gone"/>
 
     <LinearLayout
         android:id="@+id/serverButtonRow"
