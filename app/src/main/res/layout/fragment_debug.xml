@@ -9,6 +9,12 @@
     android:padding="16dp"
     android:orientation="vertical">
 
+    <Spinner
+        android:id="@+id/graphRangeSelect"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="12dp"/>
+
     <TextView
         android:id="@+id/statusText"
         android:layout_width="match_parent"
@@ -17,18 +23,10 @@
         android:textSize="16sp"
         android:paddingBottom="12dp"/>
     <TextView
-        android:id="@+id/inRangeText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="in range: false"
-        android:textSize="18sp"
-        android:paddingBottom="12dp"/>
-
-    <TextView
         android:id="@+id/modeText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Mode: waiting"
+        android:text="Mode: waiting | No gesture detected"
         android:textSize="18sp"
         android:paddingBottom="12dp"/>
 
@@ -36,7 +34,7 @@
         android:id="@+id/pointsText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Blue: 0 | Red: 0"
+        android:text="Blue: 0 | Red: 0 | Freq: -"
         android:textSize="18sp"
         android:paddingBottom="12dp"/>
 
@@ -99,6 +97,7 @@
         android:text="ts: -"
         android:textSize="12sp"
         android:paddingBottom="12dp"/>
+
     <LinearLayout
         android:id="@+id/serverButtonRow"
         android:layout_width="match_parent"

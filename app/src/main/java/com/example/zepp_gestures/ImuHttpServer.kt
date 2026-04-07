@@ -53,6 +53,8 @@ class ImuHttpServer(
 
     companion object {
         private const val PASSIVITY_TIMEOUT_MS = 30_000L
+        private const val GESTURE_WINDOW_MS = 300L
+        private const val GESTURE_MATCH_RATIO = 0.9
         private val EVENT_GESTURE_NAMES = setOf("Touche")
         private val IGNORED_GESTURE_NAMES = setOf("Hand up", "Hand down")
     }
@@ -64,7 +66,7 @@ class ImuHttpServer(
             lastHalfSecond.addAll(newSamples)
 
             val newestTs = lastHalfSecond.maxOf { it.ts }
-            val threshold = newestTs - 500L
+            val threshold = newestTs - GESTURE_WINDOW_MS
 
             val it = lastHalfSecond.iterator()
             while (it.hasNext()) {
@@ -81,15 +83,16 @@ class ImuHttpServer(
         val active = ArrayList<GestureDefinition>()
 
         gestureConfig.forEach { gesture ->
-            var outCount = 0
+            var inCount = 0
             snapshot.forEach { s ->
                 val ok =
                     s.ax in gesture.bands.axMin..gesture.bands.axMax &&
                             s.ay in gesture.bands.ayMin..gesture.bands.ayMax &&
                             s.az in gesture.bands.azMin..gesture.bands.azMax
-                if (!ok) outCount++
+                if (ok) inCount++
             }
-            if (outCount == 0) {
+            val matchRatio = inCount.toDouble() / snapshot.size.toDouble()
+            if (matchRatio >= GESTURE_MATCH_RATIO) {
                 active.add(gesture)
             }
         }
@@ -112,7 +115,7 @@ class ImuHttpServer(
 
         val hasHandUp = activeGestures.any { it.name == "Hand up" }
         val hasHandDown = activeGestures.any { it.name == "Hand down" }
-        val hasRedWarning = activeGestures.any { it.name == "Red warning" }
+        val hasRedWarning = activeGestures.any { it.name == "Warning red" }
         val hasBlueWarning = activeGestures.any { it.name == "Warning blue" }
 
         if (previous.isWarning) {

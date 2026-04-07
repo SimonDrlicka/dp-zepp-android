@@ -25,31 +25,45 @@ class DebugFragment : Fragment() {
     private lateinit var gyroTsText: TextView
     private lateinit var accelTsText: TextView
     private lateinit var poseSelect: Spinner
-    private lateinit var inRangeText: TextView
+    private lateinit var graphRangeSelect: Spinner
     private lateinit var modeText: TextView
     private lateinit var pointsText: TextView
     private lateinit var passivityTimerText: TextView
 
     private val gestures = GestureConfig.gestures
     private var selectedGesture: GestureDefinition = gestures.first()
+    private var graphDisplayMode: GraphDisplayMode = GraphDisplayMode.LAST_SECOND
 
     private val main: MainActivity get() = activity as MainActivity
+
+    private enum class GraphDisplayMode(val label: String) {
+        LAST_SECOND("Graf: posledna 1 s"),
+        LAST_20_SECONDS("Graf: poslednych 20 s"),
+        ALL_SAMPLES("Graf: vsetky data od startu servera")
+    }
+
+    private val graphDisplayModes = GraphDisplayMode.values().toList()
 
     private val uiUpdater = object : Runnable {
         override fun run() {
             if (!isAdded) return
             val server = main.server
-            inRangeText.text = main.latestGestureMessage.get()
+            val gestureInfo = main.latestGestureMessage.get()
             val mode = server?.getMode() ?: GestureMode.WAITING
-            modeText.text = when (mode) {
+            val modeLabel = when (mode) {
                 GestureMode.GESTURE -> "Mode: gesture"
                 GestureMode.WAITING -> "Mode: waiting"
                 GestureMode.WARNING_RED -> "Mode: warning red"
                 GestureMode.WARNING_BLUE -> "Mode: warning blue"
             }
+            modeText.text = "$modeLabel | $gestureInfo"
             val (blue, red) = server?.getPoints() ?: (0 to 0)
-            pointsText.text = "Blue: $blue | Red: $red"
-            val samples = server?.getLastSecondSamples().orEmpty()
+            pointsText.text = "Blue: $blue | Red: $red | Freq: ${formatReceiveFrequency(server)}"
+            val samples = when (graphDisplayMode) {
+                GraphDisplayMode.LAST_SECOND -> server?.getLastSecondSamples().orEmpty()
+                GraphDisplayMode.LAST_20_SECONDS -> getLastTwentySecondSamples(server)
+                GraphDisplayMode.ALL_SAMPLES -> server?.getAllSamples().orEmpty()
+            }
             gyroGraph.setSeries(
                 samples.map { GraphView.Sample(it.ts, floatArrayOf(it.gx.toFloat(), it.gy.toFloat(), it.gz.toFloat())) },
                 listOf("gx", "gy", "gz")
@@ -73,7 +87,6 @@ class DebugFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         statusText = view.findViewById(R.id.statusText)
-        inRangeText = view.findViewById(R.id.inRangeText)
         modeText = view.findViewById(R.id.modeText)
         pointsText = view.findViewById(R.id.pointsText)
         gyroGraph = view.findViewById(R.id.gyroGraph)
@@ -81,12 +94,26 @@ class DebugFragment : Fragment() {
         gyroTsText = view.findViewById(R.id.gyroTsText)
         accelTsText = view.findViewById(R.id.accelTsText)
         poseSelect = view.findViewById(R.id.poseSelect)
+        graphRangeSelect = view.findViewById(R.id.graphRangeSelect)
         passivityTimerText = view.findViewById(R.id.passivityTimerText)
 
         gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
         accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
         applyAccelBands(selectedGesture)
         accelGraph.setFixedRange(-10f, 10f)
+
+        val graphOptions = graphDisplayModes.map { it.label }
+        graphRangeSelect.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, graphOptions)
+        graphRangeSelect.setSelection(graphDisplayMode.ordinal)
+        graphRangeSelect.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                graphDisplayMode = graphDisplayModes.getOrElse(position) { GraphDisplayMode.LAST_SECOND }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                graphDisplayMode = GraphDisplayMode.LAST_SECOND
+            }
+        }
 
         val options = gestures.map { it.name }
         poseSelect.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, options)
@@ -110,9 +137,8 @@ class DebugFragment : Fragment() {
         view.findViewById<Button>(R.id.stopBtn).setOnClickListener {
             main.stopServer()
             statusText.text = "Server stopped"
-            inRangeText.text = "No gesture detected"
-            modeText.text = "Mode: waiting"
-            pointsText.text = "Blue: 0 | Red: 0"
+            modeText.text = "Mode: waiting | No gesture detected"
+            pointsText.text = "Blue: 0 | Red: 0 | Freq: -"
             gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
             accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
             gyroTsText.text = "ts: -"
@@ -182,5 +208,29 @@ class DebugFragment : Fragment() {
         } else {
             passivityTimerText.visibility = View.GONE
         }
+    }
+
+    private fun getLastTwentySecondSamples(server: ImuHttpServer?): List<ImuSample> {
+        val allSamples = server?.getAllSamples().orEmpty()
+        if (allSamples.isEmpty()) {
+            return emptyList()
+        }
+
+        val newestTs = allSamples.maxOf { it.ts }
+        val threshold = newestTs - 20_000L
+        return allSamples.filter { it.ts >= threshold }
+    }
+
+    private fun formatReceiveFrequency(server: ImuHttpServer?): String {
+        val samples = server?.getLastSecondSamples().orEmpty()
+        if (samples.size < 2) {
+            return if (samples.isEmpty()) "-" else "..."
+        }
+
+        val minTs = samples.minOf { it.ts }
+        val maxTs = samples.maxOf { it.ts }
+        val durationMs = (maxTs - minTs).coerceAtLeast(1L)
+        val avgHz = (samples.size - 1) * 1000.0 / durationMs
+        return "${"%.1f".format(avgHz)} Hz"
     }
 }

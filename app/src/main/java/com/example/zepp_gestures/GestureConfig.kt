@@ -35,22 +35,22 @@ object GestureConfig {
             name = "Hand down",
             message = "Gesture detected: hand down",
             bands = AccelBands(
-                axMin = -11.0,
-                axMax = -9.0,
-                ayMin = -3.9,
-                ayMax = -1.11,
-                azMin = -0.39,
-                azMax = 2.64
+                axMin = -12.84,
+                axMax = -7.39,
+                ayMin = -4.0,
+                ayMax = -2.0,
+                azMin = 0.0,
+                azMax = 3.0
             )
         ),
         GestureDefinition(
-            name = "Red warning",
-            message = "Gesture detected: red warning",
+            name = "Warning red",
+            message = "Gesture detected: warning red",
             bands = AccelBands(
                 axMin = -7.1,
                 axMax = -4.62,
-                ayMin = -1.58,
-                ayMax = 0.7,
+                ayMin = -4.35,
+                ayMax = 2.03,
                 azMin = 7.01,
                 azMax = 9.01
             )
