@@ -21,14 +21,16 @@
         android:layout_height="wrap_content"
         android:text="Server not running"
         android:textSize="16sp"
-        android:paddingBottom="12dp"/>
+        android:paddingBottom="12dp"
+        android:visibility="gone"/>
     <TextView
         android:id="@+id/modeText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Mode: waiting | No gesture detected"
         android:textSize="18sp"
-        android:paddingBottom="12dp"/>
+        android:paddingBottom="12dp"
+        android:visibility="gone"/>
 
     <TextView
         android:id="@+id/pointsText"
@@ -36,7 +38,8 @@
         android:layout_height="wrap_content"
         android:text="Blue: 0 | Red: 0 | Freq: -"
         android:textSize="18sp"
-        android:paddingBottom="12dp"/>
+        android:paddingBottom="12dp"
+        android:visibility="gone"/>
 
     <TextView
         android:id="@+id/passivityTimerText"
@@ -68,7 +71,8 @@
         android:layout_height="wrap_content"
         android:text="ts: -"
         android:textSize="12sp"
-        android:paddingBottom="12dp"/>
+        android:paddingBottom="12dp"
+        android:visibility="gone"/>
 
     <TextView
         android:id="@+id/accelLabel"
@@ -96,7 +100,8 @@
         android:layout_height="wrap_content"
         android:text="ts: -"
         android:textSize="12sp"
-        android:paddingBottom="12dp"/>
+        android:paddingBottom="12dp"
+        android:visibility="gone"/>
 
     <LinearLayout
         android:id="@+id/serverButtonRow"
@@ -126,6 +131,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Export CSV"
-        android:layout_marginTop="8dp"/>
+        android:layout_marginTop="8dp"
+        android:visibility="gone"/>
 </LinearLayout>
 </ScrollView>

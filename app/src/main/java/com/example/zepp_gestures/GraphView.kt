@@ -7,6 +7,9 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.view.View
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 
@@ -222,6 +225,13 @@ class GraphView @JvmOverloads constructor(
         canvas.drawText(minText, left - dp(32f), bottom, textPaint)
     }
 
+    private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.US)
+
+    private fun formatTs(ts: Long): String {
+        if (ts <= 0L) return "-"
+        return timeFmt.format(Date(ts))
+    }
+
     private fun drawTimestampAxis(
         canvas: Canvas,
         left: Float,
@@ -232,10 +242,9 @@ class GraphView @JvmOverloads constructor(
     ) {
         val midTs = minTs + (maxTs - minTs) / 2
         val y = bottom + dp(18f)
-        canvas.drawText("ts", left - dp(24f), y, textPaint)
-        canvas.drawText(minTs.toString(), left, y, textPaint)
-        canvas.drawText(midTs.toString(), (left + right) / 2 - dp(18f), y, textPaint)
-        canvas.drawText(maxTs.toString(), right - dp(36f), y, textPaint)
+        canvas.drawText(formatTs(minTs), left, y, textPaint)
+        canvas.drawText(formatTs(midTs), (left + right) / 2 - dp(18f), y, textPaint)
+        canvas.drawText(formatTs(maxTs), right - dp(36f), y, textPaint)
     }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
