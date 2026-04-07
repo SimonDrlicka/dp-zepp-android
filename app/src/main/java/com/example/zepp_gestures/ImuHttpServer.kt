@@ -54,6 +54,7 @@ class ImuHttpServer(
     companion object {
         private const val PASSIVITY_TIMEOUT_MS = 30_000L
         private val EVENT_GESTURE_NAMES = setOf("Touche")
+        private val IGNORED_GESTURE_NAMES = setOf("Hand up", "Hand down")
     }
 
     private fun updateHalfSecond(newSamples: List<ImuSample>) {
@@ -149,24 +150,32 @@ class ImuHttpServer(
         segmentToExport?.let(onGestureSegmentReady)
     }
 
+    private fun modeLabel(mode: GestureMode): String = when (mode) {
+        GestureMode.GESTURE -> "gesture"
+        GestureMode.WAITING -> "waiting"
+        GestureMode.WARNING_RED -> "warning red"
+        GestureMode.WARNING_BLUE -> "warning blue"
+    }
+
     private fun updatePoints(newSamples: List<ImuSample>) {
         val mode = currentMode.get()
         if (!mode.isScoring) return
         synchronized(lock) {
             val threshold = GestureConfig.POINT_GYRO_THRESHOLD * GestureConfig.POINT_GYRO_SCALE
+            val label = modeLabel(mode)
             newSamples.forEach { s ->
                 if (pointArmed) {
                     when {
                         s.gx < -threshold && mode != GestureMode.WARNING_BLUE -> {
                             bluePoints.incrementAndGet()
-                            matchEvents.add(MatchEvent(s.ts, "Blue point"))
+                            matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
                             passivityRedDeadline = 0L
                             passivityBlueDeadline = 0L
                             pointArmed = false
                         }
                         s.gx > threshold && mode != GestureMode.WARNING_RED -> {
                             redPoints.incrementAndGet()
-                            matchEvents.add(MatchEvent(s.ts, "Red point"))
+                            matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
                             passivityRedDeadline = 0L
                             passivityBlueDeadline = 0L
                             pointArmed = false
@@ -194,17 +203,18 @@ class ImuHttpServer(
                 matchEvents.add(MatchEvent(latestTs, "Warning blue"))
             }
 
-            // Log one-shot event gestures (passivity, touche) with deduplication
+            // Log detected gestures with deduplication (skip hand_up/hand_down)
             val currentEventNames = activeGestures
                 .map { it.name }
-                .filter { it in EVENT_GESTURE_NAMES }
                 .toSet()
 
             val newlyFired = mutableSetOf<String>()
             for (name in currentEventNames) {
-                if (name !in previousActiveEventGestures) {
+                if (name !in previousActiveEventGestures && name !in IGNORED_GESTURE_NAMES) {
                     matchEvents.add(MatchEvent(latestTs, name))
-                    newlyFired.add(name)
+                    if (name in EVENT_GESTURE_NAMES) {
+                        newlyFired.add(name)
+                    }
                 }
             }
             previousActiveEventGestures.clear()

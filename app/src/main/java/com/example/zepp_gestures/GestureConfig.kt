@@ -25,10 +25,10 @@ object GestureConfig {
             bands = AccelBands(
                 axMin = 8.5,
                 axMax = 10.5,
-                ayMin = -5.0,
-                ayMax = 0.0,
-                azMin = 2.5,
-                azMax = 5.0
+                ayMin = -3.87,
+                ayMax = 0.71,
+                azMin = 0.67,
+                azMax = 4.01
             )
         ),
         GestureDefinition(
@@ -37,10 +37,10 @@ object GestureConfig {
             bands = AccelBands(
                 axMin = -11.0,
                 axMax = -9.0,
-                ayMin = -4.0,
-                ayMax = -2.0,
-                azMin = 0.0,
-                azMax = 3.0
+                ayMin = -3.9,
+                ayMax = -1.11,
+                azMin = -0.39,
+                azMax = 2.64
             )
         ),
         GestureDefinition(
@@ -73,10 +73,11 @@ object GestureConfig {
             bands = AccelBands(
                 axMin = -1.43,
                 axMax = 1.46,
-                ayMin = -3.41,
-                ayMax = 4.94,
-                azMin = 7.72,
-                azMax = 12.44
+                ayMin = -11.07,
+                ayMax = -7.47,
+                
+                azMin = -4.55,
+                azMax = 5.94
             )
         ),
         GestureDefinition(
