@@ -58,7 +58,7 @@ class ImuHttpServer(
         private const val GESTURE_MATCH_RATIO = 0.9
         private const val RECEIVE_FREQ_WINDOW_MS = 1_000L
         private val EVENT_GESTURE_NAMES = setOf("Touche")
-        private val IGNORED_GESTURE_NAMES = setOf("Hand up", "Hand down")
+        private val IGNORED_GESTURE_NAMES = setOf("Hand up", "Hand down", "Warning red", "Warning blue", "Passivity red", "Passivity blue")
     }
 
     private fun recordReceiveRequest() {

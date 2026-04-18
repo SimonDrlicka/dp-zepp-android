@@ -106,7 +106,7 @@ class DebugFragment : Fragment() {
         )
         accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
         applyAccelBands(selectedGesture)
-        accelGraph.setFixedRange(-10f, 10f)
+        accelGraph.setMinimumRange(-10f, 10f)
 
         val graphOptions = graphDisplayModes.map { it.label }
         graphRangeSelect.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, graphOptions)

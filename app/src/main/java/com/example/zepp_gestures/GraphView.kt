@@ -50,6 +50,8 @@ class GraphView @JvmOverloads constructor(
     private var horizontalLines: List<HorizontalLine> = emptyList()
     private var fixedMin: Float? = null
     private var fixedMax: Float? = null
+    private var floorMin: Float? = null
+    private var floorMax: Float? = null
 
     fun setSeries(samples: List<Sample>, labels: List<String>) {
         this.samples = samples
@@ -76,6 +78,12 @@ class GraphView @JvmOverloads constructor(
     fun clearFixedRange() {
         fixedMin = null
         fixedMax = null
+        invalidate()
+    }
+
+    fun setMinimumRange(min: Float, max: Float) {
+        floorMin = min
+        floorMax = max
         invalidate()
     }
 
@@ -116,6 +124,8 @@ class GraphView @JvmOverloads constructor(
                     maxVal = max(maxVal, v)
                 }
             }
+            floorMin?.let { minVal = min(minVal, it) }
+            floorMax?.let { maxVal = max(maxVal, it) }
             if (minVal == maxVal) {
                 minVal -= 1f
                 maxVal += 1f

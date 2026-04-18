@@ -64,19 +64,19 @@ class ProdFragment : Fragment() {
 
         view.findViewById<Button>(R.id.startBtn).setOnClickListener {
             main.startServer()
-            statusText.text = "Server running on port 8080"
+            statusText.text = "Server running"
         }
 
         view.findViewById<Button>(R.id.stopBtn).setOnClickListener {
             main.stopServer()
-            statusText.text = "Server stopped"
+            statusText.text = "Server not running"
             pointsText.text = "Blue: 0 | Red: 0"
             adapter.submitList(emptyList())
             lastEventCount = 0
         }
 
         if (main.server != null) {
-            statusText.text = "Server running on port 8080"
+            statusText.text = "Server running"
         }
     }
 
