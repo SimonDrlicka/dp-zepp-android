@@ -16,8 +16,8 @@ data class GestureDefinition(
 )
 
 object GestureConfig {
-    const val POINT_GYRO_THRESHOLD = 7.0
-    const val POINT_GYRO_SCALE = 100.0
+    const val POINT_GYRO_GX_THRESHOLD = 7.0
+    const val POINT_GYRO_GX_SCALE = 100.0
     val gestures: List<GestureDefinition> = listOf(
         GestureDefinition(
             name = "Hand up",
@@ -68,6 +68,18 @@ object GestureConfig {
             )
         ),
         GestureDefinition(
+            name = "Hand back",
+            message = "Gesture detected: hand back",
+            bands = AccelBands(
+                axMin = -6.41,
+                axMax = -3.12,
+                ayMin = -10.42,
+                ayMax = -7.67,
+                azMin = -1.63,
+                azMax = 3.89
+            )
+        ),
+        GestureDefinition(
             name = "Passivity red",
             message = "Gesture detected: passivity red",
             bands = AccelBands(
@@ -102,6 +114,30 @@ object GestureConfig {
                 ayMax = -6.0,
                 azMin = -1.1,
                 azMax = 4.73
+            )
+        ),
+        GestureDefinition(
+            name = "Flick red",
+            message = "Gesture detected: flick red",
+            bands = AccelBands(
+                axMin = 0.0,
+                axMax = 0.0,
+                ayMin = 0.0,
+                ayMax = 0.0,
+                azMin = 0.0,
+                azMax = 0.0
+            )
+        ),
+        GestureDefinition(
+            name = "Flick blue",
+            message = "Gesture detected: flick blue",
+            bands = AccelBands(
+                axMin = 0.0,
+                axMax = 0.0,
+                ayMin = 0.0,
+                ayMax = 0.0,
+                azMin = 0.0,
+                azMax = 0.0
             )
         )
     )

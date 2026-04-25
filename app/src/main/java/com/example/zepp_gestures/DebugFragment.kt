@@ -51,7 +51,8 @@ class DebugFragment : Fragment() {
             val gestureInfo = main.latestGestureMessage.get()
             val mode = server?.getMode() ?: GestureMode.WAITING
             val modeLabel = when (mode) {
-                GestureMode.GESTURE -> "Mode: gesture"
+                GestureMode.GESTURE_RED -> "Mode: gesture red"
+                GestureMode.GESTURE_BLUE -> "Mode: gesture blue"
                 GestureMode.WAITING -> "Mode: waiting"
                 GestureMode.WARNING_RED -> "Mode: warning red"
                 GestureMode.WARNING_BLUE -> "Mode: warning blue"

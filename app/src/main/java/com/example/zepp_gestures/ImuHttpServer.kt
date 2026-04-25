@@ -58,7 +58,12 @@ class ImuHttpServer(
         private const val GESTURE_MATCH_RATIO = 0.9
         private const val RECEIVE_FREQ_WINDOW_MS = 1_000L
         private val EVENT_GESTURE_NAMES = setOf("Touche")
-        private val IGNORED_GESTURE_NAMES = setOf("Hand up", "Hand down", "Warning red", "Warning blue", "Passivity red", "Passivity blue")
+        private val IGNORED_GESTURE_NAMES = setOf(
+            "Hand up", "Hand down", "Hand back",
+            "Warning red", "Warning blue",
+            "Passivity red", "Passivity blue",
+            "Flick red", "Flick blue"
+        )
     }
 
     private fun recordReceiveRequest() {
@@ -125,6 +130,7 @@ class ImuHttpServer(
         if (activeGestures.isEmpty()) return previous to previous
 
         val hasHandUp = activeGestures.any { it.name == "Hand up" }
+        val hasHandBack = activeGestures.any { it.name == "Hand back" }
         val hasHandDown = activeGestures.any { it.name == "Hand down" }
         val hasRedWarning = activeGestures.any { it.name == "Warning red" }
         val hasBlueWarning = activeGestures.any { it.name == "Warning blue" }
@@ -134,14 +140,12 @@ class ImuHttpServer(
                 currentMode.set(GestureMode.WAITING)
             }
         } else {
-            if (hasHandDown) {
-                currentMode.set(GestureMode.WAITING)
-            } else if (hasRedWarning) {
-                currentMode.set(GestureMode.WARNING_RED)
-            } else if (hasBlueWarning) {
-                currentMode.set(GestureMode.WARNING_BLUE)
-            } else if (hasHandUp) {
-                currentMode.set(GestureMode.GESTURE)
+            when {
+                hasHandDown -> currentMode.set(GestureMode.WAITING)
+                hasRedWarning -> currentMode.set(GestureMode.WARNING_RED)
+                hasBlueWarning -> currentMode.set(GestureMode.WARNING_BLUE)
+                hasHandUp -> currentMode.set(GestureMode.GESTURE_RED)
+                hasHandBack -> currentMode.set(GestureMode.GESTURE_BLUE)
             }
         }
         return previous to currentMode.get()
@@ -165,41 +169,61 @@ class ImuHttpServer(
     }
 
     private fun modeLabel(mode: GestureMode): String = when (mode) {
-        GestureMode.GESTURE -> "gesture"
+        GestureMode.GESTURE_RED -> "gesture red"
+        GestureMode.GESTURE_BLUE -> "gesture blue"
         GestureMode.WAITING -> "waiting"
         GestureMode.WARNING_RED -> "warning red"
         GestureMode.WARNING_BLUE -> "warning blue"
     }
 
-    private fun updatePoints(newSamples: List<ImuSample>) {
+    private fun updatePoints(
+        newSamples: List<ImuSample>,
+        activeGestures: List<GestureDefinition>,
+        latestTs: Long
+    ) {
         val mode = currentMode.get()
         if (!mode.isScoring) return
         synchronized(lock) {
-            val threshold = GestureConfig.POINT_GYRO_THRESHOLD * GestureConfig.POINT_GYRO_SCALE
+            val gxThreshold = GestureConfig.POINT_GYRO_GX_THRESHOLD * GestureConfig.POINT_GYRO_GX_SCALE
             val label = modeLabel(mode)
             newSamples.forEach { s ->
                 if (pointArmed) {
-                    when {
-                        s.gx < -threshold && mode != GestureMode.WARNING_BLUE -> {
-                            bluePoints.incrementAndGet()
-                            matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
-                            passivityRedDeadline = 0L
-                            passivityBlueDeadline = 0L
-                            pointArmed = false
-                        }
-                        s.gx > threshold && mode != GestureMode.WARNING_RED -> {
-                            redPoints.incrementAndGet()
-                            matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
-                            passivityRedDeadline = 0L
-                            passivityBlueDeadline = 0L
-                            pointArmed = false
+                    if (s.gx < -gxThreshold) {
+                        when (mode) {
+                            GestureMode.GESTURE_RED -> {
+                                redPoints.incrementAndGet()
+                                matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
+                                clearPassivityAndDisarm()
+                            }
+                            GestureMode.GESTURE_BLUE -> {
+                                bluePoints.incrementAndGet()
+                                matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
+                                clearPassivityAndDisarm()
+                            }
+                            GestureMode.WARNING_RED -> {
+                                bluePoints.incrementAndGet()
+                                matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
+                                clearPassivityAndDisarm()
+                            }
+                            GestureMode.WARNING_BLUE -> {
+                                redPoints.incrementAndGet()
+                                matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
+                                clearPassivityAndDisarm()
+                            }
+                            else -> { /* unreachable: guarded by mode.isScoring */ }
                         }
                     }
-                } else if (s.gx >= -threshold && s.gx <= threshold) {
+                } else if (s.gx >= -gxThreshold) {
                     pointArmed = true
                 }
             }
         }
+    }
+
+    private fun clearPassivityAndDisarm() {
+        passivityRedDeadline = 0L
+        passivityBlueDeadline = 0L
+        pointArmed = false
     }
 
     private fun updateMatchEvents(
@@ -353,7 +377,7 @@ class ImuHttpServer(
         val activeGestures = inRangeHalfSecond()
         val modeChange = updateMode(activeGestures)
         updateBuffers(parsed)
-        updatePoints(parsed)
+        updatePoints(parsed, activeGestures, parsed.last().ts)
         updateCapture(parsed, modeChange)
         val newEventGestures = updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
         val (passivityStarted, passivityExpired) = updatePassivity(activeGestures, parsed.last().ts)
@@ -408,7 +432,7 @@ class ImuHttpServer(
         replaceBuffers(parsed)
         val activeGestures = inRangeHalfSecond()
         val modeChange = updateMode(activeGestures)
-        updatePoints(parsed)
+        updatePoints(parsed, activeGestures, parsed.last().ts)
         updateCapture(parsed, modeChange)
         val newEventGestures = updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
         val (passivityStarted, passivityExpired) = updatePassivity(activeGestures, parsed.last().ts)
