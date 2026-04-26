@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference
 class MainActivity : AppCompatActivity() {
 
     var server: ImuHttpServer? = null
+    var service: GestureRecognitionService? = null
     val latestGestureMessage = AtomicReference("No gesture detected")
     val gestures = GestureConfig.gestures
 
@@ -60,25 +61,23 @@ class MainActivity : AppCompatActivity() {
 
     fun startServer() {
         if (server != null) return
-        server = ImuHttpServer(
-            gestures,
-            latestGestureMessage,
-            8080
-        ) { samples ->
+        val svc = GestureRecognitionService(gestures, latestGestureMessage) { samples ->
             handler.post {
                 exportCsv(samples, "gesture_segment")
             }
-        }.apply {
-            resetPoints()
+        }
+        service = svc
+        server = ImuHttpServer(svc, 8080).apply {
             start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
         }
     }
 
     fun stopServer() {
         val s = server ?: return
-        val (blue, red) = s.getPoints()
-        val samples = s.getSessionSamples()
-        val events = s.getMatchEvents()
+        val svc = service ?: return
+        val (blue, red) = svc.getPoints()
+        val samples = svc.getSessionSamples()
+        val events = svc.getMatchEvents()
         if (samples.isNotEmpty()) {
             exportCsv(samples, "stop_server_export")
         }
@@ -88,10 +87,11 @@ class MainActivity : AppCompatActivity() {
         exportPointsCsv(blue, red)
         s.stop()
         server = null
+        service = null
     }
 
     fun exportAllCsv() {
-        val samples = server?.getSessionSamples().orEmpty()
+        val samples = service?.getSessionSamples().orEmpty()
         if (samples.isEmpty()) {
             Toast.makeText(this, "No samples to export", Toast.LENGTH_SHORT).show()
             return

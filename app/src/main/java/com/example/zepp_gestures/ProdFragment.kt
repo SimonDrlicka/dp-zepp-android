@@ -28,13 +28,13 @@ class ProdFragment : Fragment() {
     private val uiUpdater = object : Runnable {
         override fun run() {
             if (!isAdded) return
-            val server = main.server
-            val (blue, red) = server?.getPoints() ?: (0 to 0)
+            val service = main.service
+            val (blue, red) = service?.getPoints() ?: (0 to 0)
             pointsText.text = "Blue: $blue | Red: $red"
 
-            updatePassivityTimer(server)
+            updatePassivityTimer(service)
 
-            val events = server?.getMatchEvents().orEmpty()
+            val events = service?.getMatchEvents().orEmpty()
             if (events.size != lastEventCount) {
                 adapter.submitList(events)
                 lastEventCount = events.size
@@ -91,8 +91,8 @@ class ProdFragment : Fragment() {
         super.onPause()
     }
 
-    private fun updatePassivityTimer(server: ImuHttpServer?) {
-        val (redDeadline, blueDeadline) = server?.getPassivityDeadlines() ?: (0L to 0L)
+    private fun updatePassivityTimer(service: GestureRecognitionService?) {
+        val (redDeadline, blueDeadline) = service?.getPassivityDeadlines() ?: (0L to 0L)
         val now = System.currentTimeMillis()
         val activeDeadline = when {
             redDeadline > 0 -> redDeadline

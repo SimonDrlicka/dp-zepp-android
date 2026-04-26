@@ -47,23 +47,16 @@ class DebugFragment : Fragment() {
     private val uiUpdater = object : Runnable {
         override fun run() {
             if (!isAdded) return
-            val server = main.server
+            val service = main.service
             val gestureInfo = main.latestGestureMessage.get()
-            val mode = server?.getMode() ?: GestureMode.WAITING
-            val modeLabel = when (mode) {
-                GestureMode.GESTURE_RED -> "Mode: gesture red"
-                GestureMode.GESTURE_BLUE -> "Mode: gesture blue"
-                GestureMode.WAITING -> "Mode: waiting"
-                GestureMode.WARNING_RED -> "Mode: warning red"
-                GestureMode.WARNING_BLUE -> "Mode: warning blue"
-            }
-            modeText.text = "$modeLabel | $gestureInfo"
-            val (blue, red) = server?.getPoints() ?: (0 to 0)
+            val mode = service?.getMode() ?: GestureMode.WAITING
+            modeText.text = "Mode: ${mode.label} | $gestureInfo"
+            val (blue, red) = service?.getPoints() ?: (0 to 0)
             pointsText.text = "Blue: $blue | Red: $red"
             val samples = when (graphDisplayMode) {
-                GraphDisplayMode.LAST_SECOND -> server?.getLastSecondSamples().orEmpty()
-                GraphDisplayMode.LAST_20_SECONDS -> getLastTwentySecondSamples(server)
-                GraphDisplayMode.ALL_SAMPLES -> server?.getAllSamples().orEmpty()
+                GraphDisplayMode.LAST_SECOND -> service?.getLastSecondSamples().orEmpty()
+                GraphDisplayMode.LAST_20_SECONDS -> getLastTwentySecondSamples(service)
+                GraphDisplayMode.ALL_SAMPLES -> service?.getAllSamples().orEmpty()
             }
             gyroGraph.setSeries(
                 samples.map { GraphView.Sample(it.ts, floatArrayOf(it.gx.toFloat(), it.gy.toFloat(), it.gz.toFloat())) },
@@ -75,7 +68,7 @@ class DebugFragment : Fragment() {
             )
             updateTimestampText(samples, gyroTsText)
             updateTimestampText(samples, accelTsText)
-            updatePassivityTimer(server)
+            updatePassivityTimer(service)
             handler.postDelayed(this, 300)
         }
     }
@@ -199,8 +192,8 @@ class DebugFragment : Fragment() {
         return (color and 0x00FFFFFF) or (alpha shl 24)
     }
 
-    private fun updatePassivityTimer(server: ImuHttpServer?) {
-        val (redDeadline, blueDeadline) = server?.getPassivityDeadlines() ?: (0L to 0L)
+    private fun updatePassivityTimer(service: GestureRecognitionService?) {
+        val (redDeadline, blueDeadline) = service?.getPassivityDeadlines() ?: (0L to 0L)
         val now = System.currentTimeMillis()
         val activeDeadline = when {
             redDeadline > 0 -> redDeadline
@@ -217,8 +210,8 @@ class DebugFragment : Fragment() {
         }
     }
 
-    private fun getLastTwentySecondSamples(server: ImuHttpServer?): List<ImuSample> {
-        val allSamples = server?.getAllSamples().orEmpty()
+    private fun getLastTwentySecondSamples(service: GestureRecognitionService?): List<ImuSample> {
+        val allSamples = service?.getAllSamples().orEmpty()
         if (allSamples.isEmpty()) {
             return emptyList()
         }
@@ -228,14 +221,4 @@ class DebugFragment : Fragment() {
         return allSamples.filter { it.ts >= threshold }
     }
 
-    private fun formatReceiveFrequency(server: ImuHttpServer?): String {
-        val frequencyHz = server?.getReceiveRequestFrequencyHz() ?: 0.0
-        if (frequencyHz == 0.0) {
-            return "-"
-        }
-        if (frequencyHz < 0.0) {
-            return "..."
-        }
-        return "${"%.1f".format(frequencyHz)} Hz"
-    }
 }

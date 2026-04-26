@@ -60,11 +60,11 @@ object GestureConfig {
             message = "Gesture detected: warning blue",
             bands = AccelBands(
                 axMin = -6.41,
-                axMax = -3.12,
-                ayMin = -10.42,
-                ayMax = -7.67,
-                azMin = -1.63,
-                azMax = 3.89
+                axMax = -1.39,
+                ayMin = -5.03,
+                ayMax = -2.38,
+                azMin = -10.09,
+                azMax = -6.94
             )
         ),
         GestureDefinition(
@@ -87,7 +87,6 @@ object GestureConfig {
                 axMax = 1.46,
                 ayMin = -11.07,
                 ayMax = -7.47,
-                
                 azMin = -4.55,
                 azMax = 5.94
             )
@@ -116,29 +115,5 @@ object GestureConfig {
                 azMax = 4.73
             )
         ),
-        GestureDefinition(
-            name = "Flick red",
-            message = "Gesture detected: flick red",
-            bands = AccelBands(
-                axMin = 0.0,
-                axMax = 0.0,
-                ayMin = 0.0,
-                ayMax = 0.0,
-                azMin = 0.0,
-                azMax = 0.0
-            )
-        ),
-        GestureDefinition(
-            name = "Flick blue",
-            message = "Gesture detected: flick blue",
-            bands = AccelBands(
-                axMin = 0.0,
-                axMax = 0.0,
-                ayMin = 0.0,
-                ayMax = 0.0,
-                azMin = 0.0,
-                azMax = 0.0
-            )
-        )
     )
 }
