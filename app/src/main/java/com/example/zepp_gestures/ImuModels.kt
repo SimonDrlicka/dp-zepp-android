@@ -17,7 +17,9 @@ data class MatchEvent(
 
 data class VibrationCommand(
     val count: Int,
-    val duration: String = "short"
+    val duration: String = "short",
+    val followupCount: Int = 0,
+    val followupDuration: String = "short"
 )
 
 data class IngestResult(

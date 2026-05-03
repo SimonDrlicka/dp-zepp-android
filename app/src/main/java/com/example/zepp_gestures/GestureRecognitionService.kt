@@ -22,6 +22,11 @@ class GestureRecognitionService(
     private var pointArmed = true
     private var passivityRedDeadline: Long = 0L
     private var passivityBlueDeadline: Long = 0L
+    // Number of points scored within the currently-running scoring gesture
+    // (reset on entering scoring, latched out on exit so the watch can buzz
+    // a per-gesture summary).
+    private var pointsThisGesture: Int = 0
+    private var pendingScoringExitFlicks: Int? = null
 
     private val lock = Any()
 
@@ -117,6 +122,8 @@ class GestureRecognitionService(
             pointArmed = true
             passivityRedDeadline = 0L
             passivityBlueDeadline = 0L
+            pointsThisGesture = 0
+            pendingScoringExitFlicks = null
         }
     }
 
@@ -210,11 +217,16 @@ class GestureRecognitionService(
             if (current.isScoring) {
                 if (!previous.isScoring) {
                     captureSamples.clear()
+                    pointsThisGesture = 0
                 }
                 captureSamples.addAll(newSamples)
-            } else if (previous.isScoring && current == GestureMode.WAITING && captureSamples.isNotEmpty()) {
-                segmentToExport = captureSamples.toList()
-                captureSamples.clear()
+            } else if (previous.isScoring && current == GestureMode.WAITING) {
+                pendingScoringExitFlicks = pointsThisGesture
+                pointsThisGesture = 0
+                if (captureSamples.isNotEmpty()) {
+                    segmentToExport = captureSamples.toList()
+                    captureSamples.clear()
+                }
             }
         }
         segmentToExport?.let(onGestureSegmentReady)
@@ -237,21 +249,25 @@ class GestureRecognitionService(
                             GestureMode.GESTURE_RED -> {
                                 redPoints.incrementAndGet()
                                 matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
+                                pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
                             GestureMode.GESTURE_BLUE -> {
                                 bluePoints.incrementAndGet()
                                 matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
+                                pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
                             GestureMode.WARNING_RED -> {
                                 bluePoints.incrementAndGet()
                                 matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
+                                pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
                             GestureMode.WARNING_BLUE -> {
                                 redPoints.incrementAndGet()
                                 matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
+                                pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
                             else -> { /* unreachable: guarded by mode.isScoring */ }
@@ -328,13 +344,13 @@ class GestureRecognitionService(
             }
 
             // Check expired timers (runs in any mode)
-            if (passivityRedDeadline > 0 && latestTs >= passivityRedDeadline) {
+            if (passivityRedDeadline in 1..latestTs) {
                 bluePoints.incrementAndGet()
                 matchEvents.add(MatchEvent(latestTs, "Passivity red penalty (blue +1)"))
                 passivityRedDeadline = 0L
                 expired = true
             }
-            if (passivityBlueDeadline > 0 && latestTs >= passivityBlueDeadline) {
+            if (passivityBlueDeadline in 1..latestTs) {
                 redPoints.incrementAndGet()
                 matchEvents.add(MatchEvent(latestTs, "Passivity blue penalty (red +1)"))
                 passivityBlueDeadline = 0L
@@ -351,12 +367,32 @@ class GestureRecognitionService(
         passivityExpired: Boolean,
         newEventGestures: Set<String>
     ): VibrationCommand {
+        // Always consume the latched flick count so a stale value can never
+        // leak into a later tick if a higher-priority signal pre-empts it.
+        val flickCount = synchronized(lock) {
+            val v = pendingScoringExitFlicks
+            pendingScoringExitFlicks = null
+            v
+        }
         if (passivityExpired) return VibrationCommand(1, "long")
         if ("Touche" in newEventGestures) return VibrationCommand(5, "short")
+        // Scoring gesture just ended: long buzz + N shorts (one per flick).
+        if (flickCount != null) {
+            return VibrationCommand(
+                count = 1,
+                duration = "long",
+                followupCount = flickCount,
+                followupDuration = "short"
+            )
+        }
         if (passivityStarted) return VibrationCommand(2, "short")
         val (previous, current) = modeChange
         if (previous != current) {
             if (current.isWarning) return VibrationCommand(2, "short")
+            // Entering a scoring gesture (hand_up -> GESTURE_RED,
+            // hand_back -> GESTURE_BLUE) gets a distinctive short-strong
+            // buzz so the wearer can tell scoring just armed.
+            if (current.isScoring) return VibrationCommand(1, "short_strong")
             return VibrationCommand(1, "short")
         }
         return VibrationCommand(0, "short")

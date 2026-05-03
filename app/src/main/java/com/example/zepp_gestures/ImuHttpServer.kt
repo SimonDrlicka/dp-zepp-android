@@ -87,7 +87,9 @@ class ImuHttpServer(
             "score":"$score",
             "message":"${r.message}",
             "vibration":${r.vibration.count},
-            "vibrationDuration":"${r.vibration.duration}"
+            "vibrationDuration":"${r.vibration.duration}",
+            "vibrationFollowup":${r.vibration.followupCount},
+            "vibrationFollowupDuration":"${r.vibration.followupDuration}"
         }"""
     }
 
