@@ -63,8 +63,8 @@ class ProdFragment : Fragment() {
         eventList.adapter = adapter
 
         view.findViewById<Button>(R.id.startBtn).setOnClickListener {
-            main.startServer()
-            statusText.text = "Server running"
+            main.startServer(prodMode = true)
+            statusText.text = "Server running (prod)"
         }
 
         view.findViewById<Button>(R.id.stopBtn).setOnClickListener {

@@ -7,7 +7,16 @@ import java.util.concurrent.atomic.AtomicReference
 class GestureRecognitionService(
     private val gestureConfig: List<GestureDefinition>,
     private val latestGestureMessage: AtomicReference<String>,
-    private val onGestureSegmentReady: (List<ImuSample>) -> Unit = {}
+    private val onGestureSegmentReady: (List<ImuSample>) -> Unit = {},
+    // When true (prod mode) we suppress the per-gesture entry buzz that
+    // hand_up / hand_back would otherwise trigger. The scoring-exit summary
+    // buzz (long + N taps) and all other event buzzes stay unchanged.
+    private val silentScoringEntry: Boolean = false,
+    // When false (prod mode) the passivity timer is fully disabled: no
+    // 30 s countdown, no "Passivity ..." match events, and no automatic
+    // penalty point. Useful for live matches where the referee handles
+    // passivity manually.
+    private val passivityTrackingEnabled: Boolean = true
 ) {
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
@@ -27,6 +36,12 @@ class GestureRecognitionService(
     // a per-gesture summary).
     private var pointsThisGesture: Int = 0
     private var pendingScoringExitFlicks: Int? = null
+    // Edge-detection state for prod-mode passivity. In debug the deadline
+    // doubles as a de-dupe so we don't need this, but in prod (no deadline)
+    // we must remember the previous tick to emit the event/buzz only on
+    // the rising edge of each passivity pose.
+    private var previousPassivityRedActive: Boolean = false
+    private var previousPassivityBlueActive: Boolean = false
 
     private val lock = Any()
 
@@ -124,6 +139,8 @@ class GestureRecognitionService(
             passivityBlueDeadline = 0L
             pointsThisGesture = 0
             pendingScoringExitFlicks = null
+            previousPassivityRedActive = false
+            previousPassivityBlueActive = false
         }
     }
 
@@ -326,35 +343,63 @@ class GestureRecognitionService(
             var started = false
             var expired = false
 
-            // Start new timer only in WAITING mode and only if no passivity is already active
-            val anyPassivityActive = passivityRedDeadline > 0 || passivityBlueDeadline > 0
-            if (currentMode.get() == GestureMode.WAITING && !anyPassivityActive) {
-                val hasPassivityRed = activeGestures.any { it.name == "Passivity red" }
-                val hasPassivityBlue = activeGestures.any { it.name == "Passivity blue" }
+            val mode = currentMode.get()
+            val hasPassivityRed = activeGestures.any { it.name == "Passivity red" }
+            val hasPassivityBlue = activeGestures.any { it.name == "Passivity blue" }
 
-                if (hasPassivityRed) {
-                    passivityRedDeadline = latestTs + PASSIVITY_TIMEOUT_MS
-                    matchEvents.add(MatchEvent(latestTs, "Passivity red"))
-                    started = true
-                } else if (hasPassivityBlue) {
-                    passivityBlueDeadline = latestTs + PASSIVITY_TIMEOUT_MS
-                    matchEvents.add(MatchEvent(latestTs, "Passivity blue"))
-                    started = true
+            if (passivityTrackingEnabled) {
+                // Debug mode: original deadline-based timer + penalty.
+                // The deadline doubles as a de-dupe -- the event/buzz fire
+                // once when the timer starts; subsequent ticks find
+                // anyPassivityActive=true and skip.
+                val anyPassivityActive = passivityRedDeadline > 0 || passivityBlueDeadline > 0
+                if (mode == GestureMode.WAITING && !anyPassivityActive) {
+                    if (hasPassivityRed) {
+                        passivityRedDeadline = latestTs + PASSIVITY_TIMEOUT_MS
+                        matchEvents.add(MatchEvent(latestTs, "Passivity red"))
+                        started = true
+                    } else if (hasPassivityBlue) {
+                        passivityBlueDeadline = latestTs + PASSIVITY_TIMEOUT_MS
+                        matchEvents.add(MatchEvent(latestTs, "Passivity blue"))
+                        started = true
+                    }
                 }
-            }
 
-            // Check expired timers (runs in any mode)
-            if (passivityRedDeadline in 1..latestTs) {
-                bluePoints.incrementAndGet()
-                matchEvents.add(MatchEvent(latestTs, "Passivity red penalty (blue +1)"))
-                passivityRedDeadline = 0L
-                expired = true
-            }
-            if (passivityBlueDeadline in 1..latestTs) {
-                redPoints.incrementAndGet()
-                matchEvents.add(MatchEvent(latestTs, "Passivity blue penalty (red +1)"))
-                passivityBlueDeadline = 0L
-                expired = true
+                if (passivityRedDeadline in 1..latestTs) {
+                    bluePoints.incrementAndGet()
+                    matchEvents.add(MatchEvent(latestTs, "Passivity red penalty (blue +1)"))
+                    passivityRedDeadline = 0L
+                    expired = true
+                }
+                if (passivityBlueDeadline in 1..latestTs) {
+                    redPoints.incrementAndGet()
+                    matchEvents.add(MatchEvent(latestTs, "Passivity blue penalty (red +1)"))
+                    passivityBlueDeadline = 0L
+                    expired = true
+                }
+            } else {
+                // Prod mode: detection still fires the event + buzz once per
+                // appearance, but there is no 30 s timer and no automatic
+                // penalty point. Edge-detect on the previous-tick state so
+                // we only emit on the rising edge of each passivity pose.
+                if (passivityRedDeadline != 0L || passivityBlueDeadline != 0L) {
+                    passivityRedDeadline = 0L
+                    passivityBlueDeadline = 0L
+                }
+                val redEdgeStart = hasPassivityRed && !previousPassivityRedActive
+                val blueEdgeStart = hasPassivityBlue && !previousPassivityBlueActive
+                previousPassivityRedActive = hasPassivityRed
+                previousPassivityBlueActive = hasPassivityBlue
+
+                if (mode == GestureMode.WAITING) {
+                    if (redEdgeStart) {
+                        matchEvents.add(MatchEvent(latestTs, "Passivity red"))
+                        started = true
+                    } else if (blueEdgeStart) {
+                        matchEvents.add(MatchEvent(latestTs, "Passivity blue"))
+                        started = true
+                    }
+                }
             }
 
             return started to expired
@@ -391,8 +436,13 @@ class GestureRecognitionService(
             if (current.isWarning) return VibrationCommand(2, "short")
             // Entering a scoring gesture (hand_up -> GESTURE_RED,
             // hand_back -> GESTURE_BLUE) gets a distinctive short-strong
-            // buzz so the wearer can tell scoring just armed.
-            if (current.isScoring) return VibrationCommand(1, "short_strong")
+            // buzz so the wearer can tell scoring just armed -- but only
+            // in debug mode. Prod mode keeps the wrist quiet until the
+            // scoring summary fires on hand_down.
+            if (current.isScoring) {
+                if (silentScoringEntry) return VibrationCommand(0, "short")
+                return VibrationCommand(1, "short_strong")
+            }
             return VibrationCommand(1, "short")
         }
         return VibrationCommand(0, "short")

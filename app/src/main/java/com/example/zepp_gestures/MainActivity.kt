@@ -59,13 +59,19 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    fun startServer() {
+    fun startServer(prodMode: Boolean = false) {
         if (server != null) return
-        val svc = GestureRecognitionService(gestures, latestGestureMessage) { samples ->
-            handler.post {
-                exportCsv(samples, "gesture_segment")
-            }
-        }
+        val svc = GestureRecognitionService(
+            gestureConfig = gestures,
+            latestGestureMessage = latestGestureMessage,
+            onGestureSegmentReady = { samples ->
+                handler.post {
+                    exportCsv(samples, "gesture_segment")
+                }
+            },
+            silentScoringEntry = prodMode,
+            passivityTrackingEnabled = !prodMode
+        )
         service = svc
         server = ImuHttpServer(svc, 8080).apply {
             start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
