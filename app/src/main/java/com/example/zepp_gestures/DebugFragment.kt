@@ -130,8 +130,9 @@ class DebugFragment : Fragment() {
         }
 
         view.findViewById<Button>(R.id.startBtn).setOnClickListener {
-            main.startServer(prodMode = false)
-            statusText.text = "Server running on port 8080 (debug)"
+            val prod = main.selectedProdMode == true
+            main.startServer(prodMode = prod)
+            statusText.text = "Server running on port 8080 (${if (prod) "prod" else "debug"})"
         }
 
         view.findViewById<Button>(R.id.stopBtn).setOnClickListener {

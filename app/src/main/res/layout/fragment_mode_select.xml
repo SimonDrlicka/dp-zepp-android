@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Select mode"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/modeSelectHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="Debug runs the full pipeline (graphs, automatic 30 s passivity timer, automatic penalty point). Production keeps everything except the passivity timer / automatic penalty -- the referee handles passivity manually."
+        android:textSize="13sp"
+        android:layout_marginBottom="32dp"/>
+
+    <Button
+        android:id="@+id/modeDebugBtn"
+        android:layout_width="220dp"
+        android:layout_height="wrap_content"
+        android:text="Debug Mode"
+        android:layout_marginBottom="12dp"/>
+
+    <Button
+        android:id="@+id/modeProdBtn"
+        android:layout_width="220dp"
+        android:layout_height="wrap_content"
+        android:text="Production Mode"/>
+</LinearLayout>

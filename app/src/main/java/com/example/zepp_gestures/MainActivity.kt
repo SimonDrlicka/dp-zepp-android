@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.view.View
+import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.tabs.TabLayout
@@ -22,22 +24,28 @@ class MainActivity : AppCompatActivity() {
     val latestGestureMessage = AtomicReference("No gesture detected")
     val gestures = GestureConfig.gestures
 
+    // Selected once on the mode-select screen. null until the user picks
+    // Debug or Production. Persisted across rotation via savedInstanceState.
+    var selectedProdMode: Boolean? = null
+        private set
+
     private val handler = Handler(Looper.getMainLooper())
+
+    companion object {
+        private const val STATE_PROD_MODE = "selectedProdMode"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
-        tabLayout.addTab(tabLayout.newTab().setText("Debug"))
-        tabLayout.addTab(tabLayout.newTab().setText("Prod"))
-
-        if (savedInstanceState == null) {
-            supportFragmentManager.beginTransaction()
-                .replace(R.id.fragmentContainer, DebugFragment())
-                .commit()
+        if (savedInstanceState != null && savedInstanceState.containsKey(STATE_PROD_MODE)) {
+            selectedProdMode = savedInstanceState.getBoolean(STATE_PROD_MODE)
         }
 
+        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
+        tabLayout.addTab(tabLayout.newTab().setText("Graphs"))
+        tabLayout.addTab(tabLayout.newTab().setText("Events"))
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 val fragment = when (tab.position) {
@@ -52,6 +60,61 @@ class MainActivity : AppCompatActivity() {
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
+
+        findViewById<Button>(R.id.backToModeBtn).setOnClickListener {
+            backToModeSelect()
+        }
+
+        if (savedInstanceState == null) {
+            if (selectedProdMode == null) {
+                showModeSelect()
+            } else {
+                showTabsWithDefaultFragment()
+            }
+        } else {
+            // Configuration change: keep top bar visibility in sync with
+            // whether a mode was chosen. The fragment manager restores the
+            // last committed fragment on its own, so we don't replace it.
+            findViewById<View>(R.id.topBar).visibility =
+                if (selectedProdMode == null) View.GONE else View.VISIBLE
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        selectedProdMode?.let { outState.putBoolean(STATE_PROD_MODE, it) }
+    }
+
+    private fun showModeSelect() {
+        findViewById<View>(R.id.topBar).visibility = View.GONE
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.fragmentContainer, ModeSelectFragment())
+            .commit()
+    }
+
+    private fun showTabsWithDefaultFragment() {
+        findViewById<View>(R.id.topBar).visibility = View.VISIBLE
+        // Always reset the tab selection to the first tab so that returning
+        // to the tabs after a mode change starts on Graphs.
+        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
+        tabLayout.getTabAt(0)?.select()
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.fragmentContainer, DebugFragment())
+            .commit()
+    }
+
+    fun onModeSelected(prodMode: Boolean) {
+        selectedProdMode = prodMode
+        showTabsWithDefaultFragment()
+    }
+
+    private fun backToModeSelect() {
+        // Stop any running server so the next pick of debug/prod starts a
+        // clean service with the correct flags. stopServer() is idempotent
+        // when no server is running.
+        stopServer()
+        selectedProdMode = null
+        showModeSelect()
     }
 
     override fun onDestroy() {
