@@ -8,10 +8,6 @@ class GestureRecognitionService(
     private val gestureConfig: List<GestureDefinition>,
     private val latestGestureMessage: AtomicReference<String>,
     private val onGestureSegmentReady: (List<ImuSample>) -> Unit = {},
-    // When true (prod mode) we suppress the per-gesture entry buzz that
-    // hand_up / hand_back would otherwise trigger. The scoring-exit summary
-    // buzz (long + N taps) and all other event buzzes stay unchanged.
-    private val silentScoringEntry: Boolean = false,
     // When false (prod mode) the passivity timer is fully disabled: no
     // 30 s countdown, no "Passivity ..." match events, and no automatic
     // penalty point. Useful for live matches where the referee handles
@@ -435,14 +431,10 @@ class GestureRecognitionService(
         if (previous != current) {
             if (current.isWarning) return VibrationCommand(2, "short")
             // Entering a scoring gesture (hand_up -> GESTURE_RED,
-            // hand_back -> GESTURE_BLUE) gets a distinctive short-strong
-            // buzz so the wearer can tell scoring just armed -- but only
-            // in debug mode. Prod mode keeps the wrist quiet until the
-            // scoring summary fires on hand_down.
-            if (current.isScoring) {
-                if (silentScoringEntry) return VibrationCommand(0, "short")
-                return VibrationCommand(1, "short_strong")
-            }
+            // hand_back -> GESTURE_BLUE) always gets a distinctive
+            // short-strong buzz so the referee gets a tactile confirmation
+            // that scoring just armed -- in both debug and prod modes.
+            if (current.isScoring) return VibrationCommand(1, "short_strong")
             return VibrationCommand(1, "short")
         }
         return VibrationCommand(0, "short")

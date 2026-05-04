@@ -69,7 +69,6 @@ class MainActivity : AppCompatActivity() {
                     exportCsv(samples, "gesture_segment")
                 }
             },
-            silentScoringEntry = prodMode,
             passivityTrackingEnabled = !prodMode
         )
         service = svc
