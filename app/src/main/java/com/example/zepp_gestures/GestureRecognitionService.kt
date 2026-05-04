@@ -28,16 +28,19 @@ class GestureRecognitionService(
     private var passivityRedDeadline: Long = 0L
     private var passivityBlueDeadline: Long = 0L
     // Number of points scored within the currently-running scoring gesture
-    // (reset on entering scoring, latched out on exit so the watch can buzz
-    // a per-gesture summary).
+    // (reset on entering scoring, handed off to [vibrationResolver] on exit
+    // so the watch can buzz a per-gesture summary).
     private var pointsThisGesture: Int = 0
-    private var pendingScoringExitFlicks: Int? = null
     // Edge-detection state for prod-mode passivity. In debug the deadline
     // doubles as a de-dupe so we don't need this, but in prod (no deadline)
     // we must remember the previous tick to emit the event/buzz only on
     // the rising edge of each passivity pose.
     private var previousPassivityRedActive: Boolean = false
     private var previousPassivityBlueActive: Boolean = false
+
+    // Encapsulates all vibration-command state and resolution so the
+    // gesture pipeline doesn't have to know which tick produces what buzz.
+    private val vibrationResolver = VibrationResolver()
 
     private val lock = Any()
 
@@ -88,7 +91,7 @@ class GestureRecognitionService(
         }
         latestGestureMessage.set(message)
 
-        val vibration = resolveVibration(modeChange, passivityStarted, passivityExpired, newEventGestures)
+        val vibration = vibrationResolver.resolve(modeChange, passivityStarted, passivityExpired, newEventGestures)
         return synchronized(lock) {
             IngestResult(
                 received = parsed.size,
@@ -134,10 +137,10 @@ class GestureRecognitionService(
             passivityRedDeadline = 0L
             passivityBlueDeadline = 0L
             pointsThisGesture = 0
-            pendingScoringExitFlicks = null
             previousPassivityRedActive = false
             previousPassivityBlueActive = false
         }
+        vibrationResolver.reset()
     }
 
     private fun appendToSessionSamples(newSamples: List<ImuSample>) {
@@ -226,6 +229,7 @@ class GestureRecognitionService(
     private fun updateCapture(newSamples: List<ImuSample>, modeChange: Pair<GestureMode, GestureMode>) {
         val (previous, current) = modeChange
         var segmentToExport: List<ImuSample>? = null
+        var flicksToLatch: Int? = null
         synchronized(lock) {
             if (current.isScoring) {
                 if (!previous.isScoring) {
@@ -234,7 +238,7 @@ class GestureRecognitionService(
                 }
                 captureSamples.addAll(newSamples)
             } else if (previous.isScoring && current == GestureMode.WAITING) {
-                pendingScoringExitFlicks = pointsThisGesture
+                flicksToLatch = pointsThisGesture
                 pointsThisGesture = 0
                 if (captureSamples.isNotEmpty()) {
                     segmentToExport = captureSamples.toList()
@@ -242,6 +246,10 @@ class GestureRecognitionService(
                 }
             }
         }
+        // Hand off side-effects outside the lock to keep the critical
+        // section short and avoid nested-lock acquisition with the
+        // resolver's own lock.
+        flicksToLatch?.let(vibrationResolver::latchScoringExitFlicks)
         segmentToExport?.let(onGestureSegmentReady)
     }
 
@@ -400,44 +408,6 @@ class GestureRecognitionService(
 
             return started to expired
         }
-    }
-
-    private fun resolveVibration(
-        modeChange: Pair<GestureMode, GestureMode>,
-        passivityStarted: Boolean,
-        passivityExpired: Boolean,
-        newEventGestures: Set<String>
-    ): VibrationCommand {
-        // Always consume the latched flick count so a stale value can never
-        // leak into a later tick if a higher-priority signal pre-empts it.
-        val flickCount = synchronized(lock) {
-            val v = pendingScoringExitFlicks
-            pendingScoringExitFlicks = null
-            v
-        }
-        if (passivityExpired) return VibrationCommand(1, "long")
-        if ("Touche" in newEventGestures) return VibrationCommand(5, "short")
-        // Scoring gesture just ended: long buzz + N shorts (one per flick).
-        if (flickCount != null) {
-            return VibrationCommand(
-                count = 1,
-                duration = "long",
-                followupCount = flickCount,
-                followupDuration = "short"
-            )
-        }
-        if (passivityStarted) return VibrationCommand(2, "short")
-        val (previous, current) = modeChange
-        if (previous != current) {
-            if (current.isWarning) return VibrationCommand(2, "short")
-            // Entering a scoring gesture (hand_up -> GESTURE_RED,
-            // hand_back -> GESTURE_BLUE) always gets a distinctive
-            // short-strong buzz so the referee gets a tactile confirmation
-            // that scoring just armed -- in both debug and prod modes.
-            if (current.isScoring) return VibrationCommand(1, "short_strong")
-            return VibrationCommand(1, "short")
-        }
-        return VibrationCommand(0, "short")
     }
 
     private fun updateBuffers(newSamples: List<ImuSample>) {
