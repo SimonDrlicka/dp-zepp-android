@@ -12,7 +12,12 @@ class GestureRecognitionService(
     // 30 s countdown, no "Passivity ..." match events, and no automatic
     // penalty point. Useful for live matches where the referee handles
     // passivity manually.
-    private val passivityTrackingEnabled: Boolean = true
+    private val passivityTrackingEnabled: Boolean = true,
+    // When true (debug mode) the activation gesture "Hand up" (Rise Arm)
+    // is logged into the match event list so the diagnostic UI can show
+    // exactly when scoring was armed. Prod mode keeps it filtered out --
+    // the referee doesn't need pre-scoring noise in the live event log.
+    private val logActivationGestures: Boolean = true
 ) {
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
@@ -41,6 +46,15 @@ class GestureRecognitionService(
     // Encapsulates all vibration-command state and resolution so the
     // gesture pipeline doesn't have to know which tick produces what buzz.
     private val vibrationResolver = VibrationResolver()
+
+    // Per-instance event filter -- in debug mode the activation gestures
+    // "Hand up" (Rise Arm) and "Hand back", as well as the deactivation
+    // gesture "Hand down", are surfaced in the match events log so the
+    // diagnostic UI shows exactly when scoring was armed and disarmed.
+    // In prod mode all three stay hidden.
+    private val ignoredGestureNames: Set<String> =
+        if (logActivationGestures) IGNORED_GESTURE_NAMES - setOf("Hand up", "Hand back", "Hand down")
+        else IGNORED_GESTURE_NAMES
 
     private val lock = Any()
 
@@ -329,11 +343,17 @@ class GestureRecognitionService(
 
             val newlyFired = mutableSetOf<String>()
             for (name in currentEventNames) {
-                if (name !in previousActiveEventGestures && name !in IGNORED_GESTURE_NAMES) {
-                    matchEvents.add(MatchEvent(latestTs, name))
-                    if (name in EVENT_GESTURE_NAMES) {
-                        newlyFired.add(name)
-                    }
+                if (name in previousActiveEventGestures) continue
+                if (name in ignoredGestureNames) continue
+                // Hand down is only meaningful when it actually exits a
+                // scoring/warning mode -- otherwise the wrist resting in
+                // the "down" pose would spam the log while already in
+                // WAITING. Skip the entry unless this tick produced the
+                // transition out of a non-WAITING state.
+                if (name == "Hand down" && previous == GestureMode.WAITING) continue
+                matchEvents.add(MatchEvent(latestTs, name))
+                if (name in EVENT_GESTURE_NAMES) {
+                    newlyFired.add(name)
                 }
             }
             previousActiveEventGestures.clear()

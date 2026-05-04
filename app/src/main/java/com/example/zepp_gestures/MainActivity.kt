@@ -132,7 +132,8 @@ class MainActivity : AppCompatActivity() {
                     exportCsv(samples, "gesture_segment")
                 }
             },
-            passivityTrackingEnabled = !prodMode
+            passivityTrackingEnabled = !prodMode,
+            logActivationGestures = !prodMode
         )
         service = svc
         server = ImuHttpServer(svc, 8080).apply {
