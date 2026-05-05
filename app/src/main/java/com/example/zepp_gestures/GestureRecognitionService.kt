@@ -28,7 +28,7 @@ class GestureRecognitionService(
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
-    private val lastHalfSecond = mutableListOf<ImuSample>()
+    private val lastTwoSeconds = mutableListOf<ImuSample>()
     private val captureSamples = mutableListOf<ImuSample>()
     private val matchEvents = mutableListOf<MatchEvent>()
     private val previousActiveEventGestures = mutableSetOf<String>()
@@ -66,8 +66,15 @@ class GestureRecognitionService(
 
     companion object {
         private const val PASSIVITY_TIMEOUT_MS = 30_000L
-        private const val GESTURE_WINDOW_MS = 300L
-        private const val GESTURE_MATCH_RATIO = 0.9
+        // Rolling buffer length over which we look for a recent gesture
+        // hold. Samples older than this are evicted on every ingest.
+        private const val BUFFER_DURATION_MS = 2_000L
+        // Minimum continuous time (ms) a sample stream must remain inside
+        // a gesture's AccelBands to count as a detection. The matched span
+        // and everything older than it are then dropped from the buffer
+        // (see [detectAndConsume]) so a fresh hold is required for the
+        // next match.
+        private const val MATCH_DURATION_MS = 300L
         private val EVENT_GESTURE_NAMES = setOf("Touche")
         private val IGNORED_GESTURE_NAMES = setOf(
             "Hand up", "Hand down", "Hand back",
@@ -79,8 +86,8 @@ class GestureRecognitionService(
 
     override fun ingest(parsed: List<ImuSample>): IngestResult {
         appendToSessionSamples(parsed)
-        updateHalfSecond(parsed)
-        val activeGestures = inRangeHalfSecond()
+        updateLastTwoSeconds(parsed)
+        val activeGestures = detectAndConsume()
         val modeChange = updateMode(activeGestures)
         updateBuffers(parsed)
         return runScoringPipeline(parsed, activeGestures, modeChange)
@@ -89,7 +96,7 @@ class GestureRecognitionService(
     override fun ingestReset(parsed: List<ImuSample>): IngestResult {
         appendToSessionSamples(parsed)
         replaceBuffers(parsed)
-        val activeGestures = inRangeHalfSecond()
+        val activeGestures = detectAndConsume()
         val modeChange = updateMode(activeGestures)
         return runScoringPipeline(parsed, activeGestures, modeChange)
     }
@@ -186,7 +193,7 @@ class GestureRecognitionService(
             currentMode.set(GestureMode.WAITING)
             matchEvents.clear()
             previousActiveEventGestures.clear()
-            lastHalfSecond.clear()
+            lastTwoSeconds.clear()
             lastSecondSamples.clear()
             captureSamples.clear()
         }
@@ -211,54 +218,89 @@ class GestureRecognitionService(
         }
     }
 
-    private fun updateHalfSecond(newSamples: List<ImuSample>) {
+    private fun updateLastTwoSeconds(newSamples: List<ImuSample>) {
         if (newSamples.isEmpty()) return
 
         synchronized(lock) {
-            lastHalfSecond.addAll(newSamples)
+            lastTwoSeconds.addAll(newSamples)
 
-            val newestTs = lastHalfSecond.maxOf { it.ts }
-            val threshold = newestTs - GESTURE_WINDOW_MS
+            val newestTs = lastTwoSeconds.maxOf { it.ts }
+            val threshold = newestTs - BUFFER_DURATION_MS
 
-            val it = lastHalfSecond.iterator()
+            val it = lastTwoSeconds.iterator()
             while (it.hasNext()) {
                 if (it.next().ts < threshold) it.remove()
             }
         }
     }
 
-    private fun inRangeHalfSecond(): List<GestureDefinition> {
-
-        val snapshot: List<ImuSample> = synchronized(lock) { lastHalfSecond.toList() }
-        if (snapshot.isEmpty()) return emptyList()
-
+    /**
+     * Look for a continuous ≥ [MATCH_DURATION_MS] in-band run for each
+     * configured gesture inside the rolling [BUFFER_DURATION_MS] buffer.
+     * If at least one match is found, drop every sample at or before the
+     * latest matched-span end timestamp from [lastTwoSeconds] so the next
+     * detection requires a fresh hold (and the same span cannot trigger
+     * again on the next tick).
+     */
+    private fun detectAndConsume(): List<GestureDefinition> {
         val active = ArrayList<GestureDefinition>()
+        var consumeUntilTs: Long = Long.MIN_VALUE
+        var snapshotSize = 0
 
-        gestureConfig.forEach { gesture ->
-            var inCount = 0
-            snapshot.forEach { s ->
-                val ok =
-                    s.ax in gesture.bands.axMin..gesture.bands.axMax &&
-                            s.ay in gesture.bands.ayMin..gesture.bands.ayMax &&
-                            s.az in gesture.bands.azMin..gesture.bands.azMax
-                if (ok) inCount++
-            }
-            val matchRatio = inCount.toDouble() / snapshot.size.toDouble()
-            if (matchRatio >= GESTURE_MATCH_RATIO) {
+        synchronized(lock) {
+            if (lastTwoSeconds.isEmpty()) return emptyList()
+            val snapshot = lastTwoSeconds.toList()
+            snapshotSize = snapshot.size
+
+            gestureConfig.forEach { gesture ->
+                val endTs = findMatchEndTs(snapshot, gesture) ?: return@forEach
                 active.add(gesture)
+                if (endTs > consumeUntilTs) consumeUntilTs = endTs
+            }
+
+            if (consumeUntilTs > Long.MIN_VALUE) {
+                val it = lastTwoSeconds.iterator()
+                while (it.hasNext()) {
+                    if (it.next().ts <= consumeUntilTs) it.remove() else break
+                }
             }
         }
 
         Log.d(
             "GestureRecognitionService",
-            "inRangeHalfSecond summary: samples=${snapshot.size} " +
-                    "mean value: ax=${"%.2f".format(snapshot.map { it.ax }.average())} " +
-                    "ay=${"%.2f".format(snapshot.map { it.ay }.average()) } " +
-                    " az=${"%.2f".format(snapshot.map { it.az }.average())} " +
-                    "| active=${active.joinToString { it.name }}"
+            "detectAndConsume: samples=$snapshotSize " +
+                    "active=${active.joinToString { it.name }} " +
+                    "consumeUntilTs=" +
+                    if (consumeUntilTs > Long.MIN_VALUE) consumeUntilTs.toString() else "-"
         )
 
         return active
+    }
+
+    /**
+     * Walk [buf] left to right and return the timestamp of the sample at
+     * which a continuous in-band run first reaches [MATCH_DURATION_MS]
+     * (measured between the run's first and current sample timestamps).
+     * Any out-of-band sample resets the run. `null` if no run qualifies.
+     */
+    private fun findMatchEndTs(buf: List<ImuSample>, gesture: GestureDefinition): Long? {
+        var runStart: Long? = null
+        for (s in buf) {
+            val inBand =
+                s.ax in gesture.bands.axMin..gesture.bands.axMax &&
+                        s.ay in gesture.bands.ayMin..gesture.bands.ayMax &&
+                        s.az in gesture.bands.azMin..gesture.bands.azMax
+            if (!inBand) {
+                runStart = null
+                continue
+            }
+            if (runStart == null) {
+                runStart = s.ts
+                continue
+            }
+            if (s.ts - runStart!! >= MATCH_DURATION_MS) return s.ts
+        }
+        return null
     }
 
     private fun updateMode(activeGestures: List<GestureDefinition>): Pair<GestureMode, GestureMode> {
@@ -529,21 +571,21 @@ class GestureRecognitionService(
         synchronized(lock) {
             allSamples.clear()
             lastSecondSamples.clear()
-            lastHalfSecond.clear()
+            lastTwoSeconds.clear()
             captureSamples.clear()
 
             allSamples.addAll(allData)
 
             val newestTs = allData.maxOf { it.ts }
             val lastSecondThreshold = newestTs - 1000L
-            val lastHalfSecondThreshold = newestTs - 500L
+            val bufferDurationThreshold = newestTs - BUFFER_DURATION_MS
 
             allData.forEach { s ->
                 if (s.ts >= lastSecondThreshold) {
                     lastSecondSamples.add(s)
                 }
-                if (s.ts >= lastHalfSecondThreshold) {
-                    lastHalfSecond.add(s)
+                if (s.ts >= bufferDurationThreshold) {
+                    lastTwoSeconds.add(s)
                 }
             }
         }

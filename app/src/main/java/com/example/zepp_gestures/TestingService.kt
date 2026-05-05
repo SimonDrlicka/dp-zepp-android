@@ -50,8 +50,8 @@ class TestingService(
     companion object {
         private const val TAIL_CAPTURE_MS = 1_000L
         private const val INTER_ATTEMPT_PAUSE_MS = 1_000L
-        private const val GESTURE_WINDOW_MS = 300L
-        private const val GESTURE_MATCH_RATIO = 0.9
+        private const val BUFFER_DURATION_MS = 2_000L
+        private const val MATCH_DURATION_MS = 300L
     }
 
     private val lock = Any()
@@ -59,9 +59,10 @@ class TestingService(
     // Samples for the current attempt -- everything since the last reset.
     private val activeBuffer = mutableListOf<ImuSample>()
 
-    // Sliding window used for band-match decisions. Mirrors the
-    // GestureRecognitionService.lastHalfSecond logic.
-    private val lastHalfSecond = mutableListOf<ImuSample>()
+    // Rolling [BUFFER_DURATION_MS] sample buffer used for band-match
+    // decisions. Mirrors GestureRecognitionService.lastTwoSeconds and uses
+    // the same continuous-run detection (≥ MATCH_DURATION_MS in-band).
+    private val lastTwoSeconds = mutableListOf<ImuSample>()
 
     // Set when any catalog gesture was recognised this attempt; null
     // otherwise. While set, we're recording the post-detection tail.
@@ -129,7 +130,7 @@ class TestingService(
 
             if (reset) {
                 activeBuffer.clear()
-                lastHalfSecond.clear()
+                lastTwoSeconds.clear()
                 detectedAtTs = null
                 detectedGesture = null
                 skipPending = false
@@ -155,11 +156,11 @@ class TestingService(
 
             activeBuffer.addAll(parsed)
 
-            // Update the sliding "last 300 ms" window for band matching.
-            lastHalfSecond.addAll(parsed)
-            val newest = lastHalfSecond.maxOf { it.ts }
-            val cutoff = newest - GESTURE_WINDOW_MS
-            val it = lastHalfSecond.iterator()
+            // Update the rolling [BUFFER_DURATION_MS] sample buffer.
+            lastTwoSeconds.addAll(parsed)
+            val newest = lastTwoSeconds.maxOf { it.ts }
+            val cutoff = newest - BUFFER_DURATION_MS
+            val it = lastTwoSeconds.iterator()
             while (it.hasNext()) {
                 if (it.next().ts < cutoff) it.remove()
             }
@@ -178,7 +179,7 @@ class TestingService(
 
                     // Reset for the next attempt and start the cooldown.
                     activeBuffer.clear()
-                    lastHalfSecond.clear()
+                    lastTwoSeconds.clear()
                     detectedAtTs = null
                     detectedGesture = null
                     currentAttemptSkipped = false
@@ -234,7 +235,7 @@ class TestingService(
         return IngestResult(
             received = parsed.size,
             total = activeBuffer.size,
-            lastSecondCount = lastHalfSecond.size,
+            lastSecondCount = lastTwoSeconds.size,
             bluePoints = 0,
             redPoints = 0,
             message = msg,
@@ -243,25 +244,37 @@ class TestingService(
     }
 
     /**
-     * Walk the catalog in [TestingGestures.ALL] order and return the first
-     * gesture whose AccelBands match at least 90 % of the half-second
-     * window samples. `null` if none match.
+     * Walk the catalog in [TestingGestures.ALL] order and return the
+     * first gesture for which [lastTwoSeconds] contains a continuous
+     * in-band run of at least [MATCH_DURATION_MS]. `null` if none match.
+     * Mirrors GestureRecognitionService.detectAndConsume but does not
+     * consume the buffer -- a successful match here moves the attempt
+     * into tail-capture, after which the buffer is cleared on the next
+     * reset.
      */
     private fun firstMatchingGesture(): TestingGesture? {
-        val snapshot = lastHalfSecond
-        if (snapshot.isEmpty()) return null
-        val total = snapshot.size.toDouble()
+        if (lastTwoSeconds.isEmpty()) return null
         for ((tg, bands) in catalogWithBands) {
-            var inCount = 0
-            for (s in snapshot) {
-                val ok = s.ax in bands.axMin..bands.axMax &&
-                    s.ay in bands.ayMin..bands.ayMax &&
-                    s.az in bands.azMin..bands.azMax
-                if (ok) inCount++
+            if (findMatchEndTs(lastTwoSeconds, bands) != null) return tg
+        }
+        return null
+    }
+
+    private fun findMatchEndTs(buf: List<ImuSample>, bands: AccelBands): Long? {
+        var runStart: Long? = null
+        for (s in buf) {
+            val inBand = s.ax in bands.axMin..bands.axMax &&
+                s.ay in bands.ayMin..bands.ayMax &&
+                s.az in bands.azMin..bands.azMax
+            if (!inBand) {
+                runStart = null
+                continue
             }
-            if (inCount.toDouble() / total >= GESTURE_MATCH_RATIO) {
-                return tg
+            if (runStart == null) {
+                runStart = s.ts
+                continue
             }
+            if (s.ts - runStart!! >= MATCH_DURATION_MS) return s.ts
         }
         return null
     }
