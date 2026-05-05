@@ -18,7 +18,7 @@ class GestureRecognitionService(
     // exactly when scoring was armed. Prod mode keeps it filtered out --
     // the referee doesn't need pre-scoring noise in the live event log.
     private val logActivationGestures: Boolean = true
-) {
+) : ImuIngestor {
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
@@ -71,7 +71,7 @@ class GestureRecognitionService(
         )
     }
 
-    fun ingest(parsed: List<ImuSample>): IngestResult {
+    override fun ingest(parsed: List<ImuSample>): IngestResult {
         appendToSessionSamples(parsed)
         updateHalfSecond(parsed)
         val activeGestures = inRangeHalfSecond()
@@ -80,7 +80,7 @@ class GestureRecognitionService(
         return runScoringPipeline(parsed, activeGestures, modeChange)
     }
 
-    fun ingestReset(parsed: List<ImuSample>): IngestResult {
+    override fun ingestReset(parsed: List<ImuSample>): IngestResult {
         appendToSessionSamples(parsed)
         replaceBuffers(parsed)
         val activeGestures = inRangeHalfSecond()

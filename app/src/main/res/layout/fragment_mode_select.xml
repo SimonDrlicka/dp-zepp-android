@@ -34,5 +34,12 @@
         android:id="@+id/modeProdBtn"
         android:layout_width="220dp"
         android:layout_height="wrap_content"
-        android:text="Production Mode"/>
+        android:text="Production Mode"
+        android:layout_marginBottom="12dp"/>
+
+    <Button
+        android:id="@+id/modeTestingBtn"
+        android:layout_width="220dp"
+        android:layout_height="wrap_content"
+        android:text="Testing"/>
 </LinearLayout>

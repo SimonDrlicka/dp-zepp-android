@@ -5,7 +5,7 @@ import fi.iki.elonen.NanoHTTPD
 import org.json.JSONObject
 
 class ImuHttpServer(
-    private val service: GestureRecognitionService,
+    private val service: ImuIngestor,
     port: Int = 8080
 ) : NanoHTTPD(port) {
 

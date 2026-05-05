@@ -7,7 +7,11 @@ import android.view.ViewGroup
 import android.widget.Button
 import androidx.fragment.app.Fragment
 
-class ModeSelectFragment : Fragment() {
+/**
+ * Placeholder for Phase 2 (Composite sequences). The UI navigation is
+ * wired up but the actual test logic will be added later.
+ */
+class TestingPhase2Fragment : Fragment() {
 
     private val main: MainActivity get() = activity as MainActivity
 
@@ -15,20 +19,12 @@ class ModeSelectFragment : Fragment() {
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View {
-        return inflater.inflate(R.layout.fragment_mode_select, container, false)
-    }
+    ): View = inflater.inflate(R.layout.fragment_testing_phase2, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        view.findViewById<Button>(R.id.modeDebugBtn).setOnClickListener {
-            main.onModeSelected(prodMode = false)
-        }
-        view.findViewById<Button>(R.id.modeProdBtn).setOnClickListener {
-            main.onModeSelected(prodMode = true)
-        }
-        view.findViewById<Button>(R.id.modeTestingBtn).setOnClickListener {
+        view.findViewById<Button>(R.id.testingPhase2BackBtn).setOnClickListener {
             main.showTestingPhaseSelect()
         }
     }
