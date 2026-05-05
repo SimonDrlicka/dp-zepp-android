@@ -17,7 +17,13 @@ class GestureRecognitionService(
     // is logged into the match event list so the diagnostic UI can show
     // exactly when scoring was armed. Prod mode keeps it filtered out --
     // the referee doesn't need pre-scoring noise in the live event log.
-    private val logActivationGestures: Boolean = true
+    private val logActivationGestures: Boolean = true,
+    // Live stream of every newly-appended [MatchEvent], fired from inside
+    // the HTTP worker thread *outside* the service's own lock. Default
+    // is a no-op so debug/prod modes are unaffected. Composite testing
+    // (Phase 2) hooks this to drive its sequence-tracking state machine
+    // without having to poll [matchEvents].
+    private val onMatchEventEmitted: (MatchEvent) -> Unit = {}
 ) : ImuIngestor {
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
@@ -94,10 +100,13 @@ class GestureRecognitionService(
         modeChange: Pair<GestureMode, GestureMode>
     ): IngestResult {
         val latestTs = parsed.last().ts
-        updatePoints(parsed, activeGestures, latestTs)
+        // Each updateXxx call returns the events it newly appended so we
+        // can fire the live callback below, outside any service lock.
+        val newPointEvents = updatePoints(parsed, activeGestures, latestTs)
         updateCapture(parsed, modeChange)
-        val newEventGestures = updateMatchEvents(activeGestures, modeChange, latestTs)
-        val (passivityStarted, passivityExpired) = updatePassivity(activeGestures, latestTs)
+        val newMatchEvents = mutableListOf<MatchEvent>()
+        val newEventGestures = updateMatchEvents(activeGestures, modeChange, latestTs, newMatchEvents)
+        val (passivityStarted, passivityExpired, newPassivityEvents) = updatePassivity(activeGestures, latestTs)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -106,6 +115,13 @@ class GestureRecognitionService(
         latestGestureMessage.set(message)
 
         val vibration = vibrationResolver.resolve(modeChange, passivityStarted, passivityExpired, newEventGestures)
+        // Fire the live event callback for everything newly appended this
+        // tick. Order: points first (they happen earliest in the pipeline),
+        // then plain match events, then passivity. The callback runs on the
+        // HTTP worker thread; subscribers must marshal to the UI thread.
+        if (newPointEvents.isNotEmpty()) newPointEvents.forEach(onMatchEventEmitted)
+        if (newMatchEvents.isNotEmpty()) newMatchEvents.forEach(onMatchEventEmitted)
+        if (newPassivityEvents.isNotEmpty()) newPassivityEvents.forEach(onMatchEventEmitted)
         return synchronized(lock) {
             IngestResult(
                 received = parsed.size,
@@ -155,6 +171,37 @@ class GestureRecognitionService(
             previousPassivityBlueActive = false
         }
         vibrationResolver.reset()
+    }
+
+    /**
+     * Full reset between Phase 2 composite-test attempts: zero score, drop
+     * all events, clear sliding windows and capture buffers, return to
+     * WAITING. Leaves [sessionSamples] alone so the caller (which exports
+     * per-attempt CSVs) can read the slice it cares about and clear it
+     * separately via [clearSessionSamples].
+     */
+    fun resetForNextAttempt() {
+        resetPoints()
+        synchronized(lock) {
+            currentMode.set(GestureMode.WAITING)
+            matchEvents.clear()
+            previousActiveEventGestures.clear()
+            lastHalfSecond.clear()
+            lastSecondSamples.clear()
+            captureSamples.clear()
+        }
+    }
+
+    /**
+     * Wipe the per-attempt session buffer. Composite testing calls this
+     * after exporting the CSV so the next attempt starts from an empty
+     * record.
+     */
+    fun clearSessionSamples() {
+        synchronized(lock) {
+            sessionSamples.clear()
+            allSamples.clear()
+        }
     }
 
     private fun appendToSessionSamples(newSamples: List<ImuSample>) {
@@ -271,9 +318,10 @@ class GestureRecognitionService(
         newSamples: List<ImuSample>,
         activeGestures: List<GestureDefinition>,
         latestTs: Long
-    ) {
+    ): List<MatchEvent> {
         val mode = currentMode.get()
-        if (!mode.isScoring) return
+        if (!mode.isScoring) return emptyList()
+        val emitted = mutableListOf<MatchEvent>()
         synchronized(lock) {
             val gxThreshold = GestureConfig.POINT_GYRO_GX_THRESHOLD * GestureConfig.POINT_GYRO_GX_SCALE
             val label = mode.label
@@ -283,25 +331,29 @@ class GestureRecognitionService(
                         when (mode) {
                             GestureMode.GESTURE_RED -> {
                                 redPoints.incrementAndGet()
-                                matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
+                                val ev = MatchEvent(s.ts, "Red point ($label)")
+                                matchEvents.add(ev); emitted.add(ev)
                                 pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
                             GestureMode.GESTURE_BLUE -> {
                                 bluePoints.incrementAndGet()
-                                matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
+                                val ev = MatchEvent(s.ts, "Blue point ($label)")
+                                matchEvents.add(ev); emitted.add(ev)
                                 pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
                             GestureMode.WARNING_RED -> {
                                 bluePoints.incrementAndGet()
-                                matchEvents.add(MatchEvent(s.ts, "Blue point ($label)"))
+                                val ev = MatchEvent(s.ts, "Blue point ($label)")
+                                matchEvents.add(ev); emitted.add(ev)
                                 pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
                             GestureMode.WARNING_BLUE -> {
                                 redPoints.incrementAndGet()
-                                matchEvents.add(MatchEvent(s.ts, "Red point ($label)"))
+                                val ev = MatchEvent(s.ts, "Red point ($label)")
+                                matchEvents.add(ev); emitted.add(ev)
                                 pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
@@ -313,6 +365,7 @@ class GestureRecognitionService(
                 }
             }
         }
+        return emitted
     }
 
     private fun clearPassivityAndDisarm() {
@@ -324,16 +377,19 @@ class GestureRecognitionService(
     private fun updateMatchEvents(
         activeGestures: List<GestureDefinition>,
         modeChange: Pair<GestureMode, GestureMode>,
-        latestTs: Long
+        latestTs: Long,
+        emitted: MutableList<MatchEvent>
     ): Set<String> {
         val (previous, current) = modeChange
         synchronized(lock) {
             // Log warning mode transitions
             if (!previous.isWarning && current == GestureMode.WARNING_RED) {
-                matchEvents.add(MatchEvent(latestTs, "Warning red"))
+                val ev = MatchEvent(latestTs, "Warning red")
+                matchEvents.add(ev); emitted.add(ev)
             }
             if (!previous.isWarning && current == GestureMode.WARNING_BLUE) {
-                matchEvents.add(MatchEvent(latestTs, "Warning blue"))
+                val ev = MatchEvent(latestTs, "Warning blue")
+                matchEvents.add(ev); emitted.add(ev)
             }
 
             // Log detected gestures with deduplication (skip hand_up/hand_down)
@@ -351,7 +407,8 @@ class GestureRecognitionService(
                 // WAITING. Skip the entry unless this tick produced the
                 // transition out of a non-WAITING state.
                 if (name == "Hand down" && previous == GestureMode.WAITING) continue
-                matchEvents.add(MatchEvent(latestTs, name))
+                val ev = MatchEvent(latestTs, name)
+                matchEvents.add(ev); emitted.add(ev)
                 if (name in EVENT_GESTURE_NAMES) {
                     newlyFired.add(name)
                 }
@@ -362,10 +419,17 @@ class GestureRecognitionService(
         }
     }
 
-    private fun updatePassivity(activeGestures: List<GestureDefinition>, latestTs: Long): Pair<Boolean, Boolean> {
+    private data class PassivityResult(
+        val started: Boolean,
+        val expired: Boolean,
+        val emitted: List<MatchEvent>
+    )
+
+    private fun updatePassivity(activeGestures: List<GestureDefinition>, latestTs: Long): PassivityResult {
         synchronized(lock) {
             var started = false
             var expired = false
+            val emitted = mutableListOf<MatchEvent>()
 
             val mode = currentMode.get()
             val hasPassivityRed = activeGestures.any { it.name == "Passivity red" }
@@ -380,24 +444,28 @@ class GestureRecognitionService(
                 if (mode == GestureMode.WAITING && !anyPassivityActive) {
                     if (hasPassivityRed) {
                         passivityRedDeadline = latestTs + PASSIVITY_TIMEOUT_MS
-                        matchEvents.add(MatchEvent(latestTs, "Passivity red"))
+                        val ev = MatchEvent(latestTs, "Passivity red")
+                        matchEvents.add(ev); emitted.add(ev)
                         started = true
                     } else if (hasPassivityBlue) {
                         passivityBlueDeadline = latestTs + PASSIVITY_TIMEOUT_MS
-                        matchEvents.add(MatchEvent(latestTs, "Passivity blue"))
+                        val ev = MatchEvent(latestTs, "Passivity blue")
+                        matchEvents.add(ev); emitted.add(ev)
                         started = true
                     }
                 }
 
                 if (passivityRedDeadline in 1..latestTs) {
                     bluePoints.incrementAndGet()
-                    matchEvents.add(MatchEvent(latestTs, "Passivity red penalty (blue +1)"))
+                    val ev = MatchEvent(latestTs, "Passivity red penalty (blue +1)")
+                    matchEvents.add(ev); emitted.add(ev)
                     passivityRedDeadline = 0L
                     expired = true
                 }
                 if (passivityBlueDeadline in 1..latestTs) {
                     redPoints.incrementAndGet()
-                    matchEvents.add(MatchEvent(latestTs, "Passivity blue penalty (red +1)"))
+                    val ev = MatchEvent(latestTs, "Passivity blue penalty (red +1)")
+                    matchEvents.add(ev); emitted.add(ev)
                     passivityBlueDeadline = 0L
                     expired = true
                 }
@@ -417,16 +485,18 @@ class GestureRecognitionService(
 
                 if (mode == GestureMode.WAITING) {
                     if (redEdgeStart) {
-                        matchEvents.add(MatchEvent(latestTs, "Passivity red"))
+                        val ev = MatchEvent(latestTs, "Passivity red")
+                        matchEvents.add(ev); emitted.add(ev)
                         started = true
                     } else if (blueEdgeStart) {
-                        matchEvents.add(MatchEvent(latestTs, "Passivity blue"))
+                        val ev = MatchEvent(latestTs, "Passivity blue")
+                        matchEvents.add(ev); emitted.add(ev)
                         started = true
                     }
                 }
             }
 
-            return started to expired
+            return PassivityResult(started, expired, emitted)
         }
     }
 
