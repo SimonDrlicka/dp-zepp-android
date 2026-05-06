@@ -448,7 +448,9 @@ class MainActivity : AppCompatActivity() {
                 }
             },
             passivityTrackingEnabled = !prodMode,
-            logActivationGestures = !prodMode
+            logActivationGestures = !prodMode,
+            vibrateOnScoringArmed =
+                !prodMode || GestureConfig.VIBRATE_ON_SCORING_ARMED_IN_PROD
         )
         service = svc
         server = ImuHttpServer(svc, 8080).apply {

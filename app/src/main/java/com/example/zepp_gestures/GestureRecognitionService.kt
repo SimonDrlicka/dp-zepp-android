@@ -23,12 +23,23 @@ class GestureRecognitionService(
     // is a no-op so debug/prod modes are unaffected. Composite testing
     // (Phase 2) hooks this to drive its sequence-tracking state machine
     // without having to poll [matchEvents].
-    private val onMatchEventEmitted: (MatchEvent) -> Unit = {}
+    private val onMatchEventEmitted: (MatchEvent) -> Unit = {},
+    // Whether the watch buzzes when an activation gesture ("Hand up" /
+    // "Hand back") arms scoring. Forwarded to [VibrationResolver]; see
+    // GestureConfig.VIBRATE_ON_SCORING_ARMED_IN_PROD for the prod-mode
+    // default callers compose from MainActivity.
+    private val vibrateOnScoringArmed: Boolean = true
 ) : ImuIngestor {
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
     private val lastTwoSeconds = mutableListOf<ImuSample>()
+    // Rolling [GestureConfig.SCORING_LOOKBACK_MS] sample buffer used to retroactively
+    // award flicks that happened during the brief gap between the user
+    // raising their arm and the activation gesture (e.g. "Hand up") being
+    // confirmed by [detectAndConsume]. Updated on every ingest regardless
+    // of mode; only read when mode transitions WAITING → scoring.
+    private val scoringLookback = mutableListOf<ImuSample>()
     private val captureSamples = mutableListOf<ImuSample>()
     private val matchEvents = mutableListOf<MatchEvent>()
     private val previousActiveEventGestures = mutableSetOf<String>()
@@ -51,7 +62,7 @@ class GestureRecognitionService(
 
     // Encapsulates all vibration-command state and resolution so the
     // gesture pipeline doesn't have to know which tick produces what buzz.
-    private val vibrationResolver = VibrationResolver()
+    private val vibrationResolver = VibrationResolver(vibrateOnScoringArmed)
 
     // Per-instance event filter -- in debug mode the activation gestures
     // "Hand up" (Rise Arm) and "Hand back", as well as the deactivation
@@ -66,15 +77,6 @@ class GestureRecognitionService(
 
     companion object {
         private const val PASSIVITY_TIMEOUT_MS = 30_000L
-        // Rolling buffer length over which we look for a recent gesture
-        // hold. Samples older than this are evicted on every ingest.
-        private const val BUFFER_DURATION_MS = 2_000L
-        // Minimum continuous time (ms) a sample stream must remain inside
-        // a gesture's AccelBands to count as a detection. The matched span
-        // and everything older than it are then dropped from the buffer
-        // (see [detectAndConsume]) so a fresh hold is required for the
-        // next match.
-        private const val MATCH_DURATION_MS = 300L
         private val EVENT_GESTURE_NAMES = setOf("Touche")
         private val IGNORED_GESTURE_NAMES = setOf(
             "Hand up", "Hand down", "Hand back",
@@ -109,7 +111,7 @@ class GestureRecognitionService(
         val latestTs = parsed.last().ts
         // Each updateXxx call returns the events it newly appended so we
         // can fire the live callback below, outside any service lock.
-        val newPointEvents = updatePoints(parsed, activeGestures, latestTs)
+        val newPointEvents = updatePoints(parsed, activeGestures, latestTs, modeChange)
         updateCapture(parsed, modeChange)
         val newMatchEvents = mutableListOf<MatchEvent>()
         val newEventGestures = updateMatchEvents(activeGestures, modeChange, latestTs, newMatchEvents)
@@ -195,6 +197,7 @@ class GestureRecognitionService(
             previousActiveEventGestures.clear()
             lastTwoSeconds.clear()
             lastSecondSamples.clear()
+            scoringLookback.clear()
             captureSamples.clear()
         }
     }
@@ -225,7 +228,7 @@ class GestureRecognitionService(
             lastTwoSeconds.addAll(newSamples)
 
             val newestTs = lastTwoSeconds.maxOf { it.ts }
-            val threshold = newestTs - BUFFER_DURATION_MS
+            val threshold = newestTs - GestureConfig.BUFFER_DURATION_MS
 
             val it = lastTwoSeconds.iterator()
             while (it.hasNext()) {
@@ -235,8 +238,8 @@ class GestureRecognitionService(
     }
 
     /**
-     * Look for a continuous ≥ [MATCH_DURATION_MS] in-band run for each
-     * configured gesture inside the rolling [BUFFER_DURATION_MS] buffer.
+     * Look for a continuous ≥ [GestureConfig.MATCH_DURATION_MS] in-band run for each
+     * configured gesture inside the rolling [GestureConfig.BUFFER_DURATION_MS] buffer.
      * If at least one match is found, drop every sample at or before the
      * latest matched-span end timestamp from [lastTwoSeconds] so the next
      * detection requires a fresh hold (and the same span cannot trigger
@@ -279,7 +282,7 @@ class GestureRecognitionService(
 
     /**
      * Walk [buf] left to right and return the timestamp of the sample at
-     * which a continuous in-band run first reaches [MATCH_DURATION_MS]
+     * which a continuous in-band run first reaches [GestureConfig.MATCH_DURATION_MS]
      * (measured between the run's first and current sample timestamps).
      * Any out-of-band sample resets the run. `null` if no run qualifies.
      */
@@ -298,7 +301,7 @@ class GestureRecognitionService(
                 runStart = s.ts
                 continue
             }
-            if (s.ts - runStart!! >= MATCH_DURATION_MS) return s.ts
+            if (s.ts - runStart!! >= GestureConfig.MATCH_DURATION_MS) return s.ts
         }
         return null
     }
@@ -359,15 +362,36 @@ class GestureRecognitionService(
     private fun updatePoints(
         newSamples: List<ImuSample>,
         activeGestures: List<GestureDefinition>,
-        latestTs: Long
+        latestTs: Long,
+        modeChange: Pair<GestureMode, GestureMode>
     ): List<MatchEvent> {
-        val mode = currentMode.get()
-        if (!mode.isScoring) return emptyList()
         val emitted = mutableListOf<MatchEvent>()
+        val mode = currentMode.get()
+        val (previous, _) = modeChange
+
         synchronized(lock) {
-            val gxThreshold = GestureConfig.POINT_GYRO_GX_THRESHOLD * GestureConfig.POINT_GYRO_GX_SCALE
+            // Always grow the scoring lookback so a future WAITING →
+            // scoring transition has the recent gx history available.
+            appendToScoringLookback(newSamples)
+
+            if (!mode.isScoring) return@synchronized
+
+            // On the tick that we just entered scoring, replay the
+            // lookback first so flicks that happened while we were still
+            // waiting for the activation gesture to confirm still count.
+            // Each [MatchEvent] uses the historical sample's [ts], not
+            // [latestTs], so the event log shows the actual flick time.
+            val samplesToScore: List<ImuSample> = if (!previous.isScoring) {
+                val firstParsedTs = newSamples.firstOrNull()?.ts ?: Long.MAX_VALUE
+                scoringLookback.filter { it.ts < firstParsedTs } + newSamples
+            } else {
+                newSamples
+            }
+
+            val gxThreshold =
+                GestureConfig.POINT_GYRO_GX_THRESHOLD * GestureConfig.POINT_GYRO_GX_SCALE
             val label = mode.label
-            newSamples.forEach { s ->
+            samplesToScore.forEach { s ->
                 if (pointArmed) {
                     if (s.gx < -gxThreshold) {
                         when (mode) {
@@ -408,6 +432,17 @@ class GestureRecognitionService(
             }
         }
         return emitted
+    }
+
+    private fun appendToScoringLookback(newSamples: List<ImuSample>) {
+        if (newSamples.isEmpty()) return
+        scoringLookback.addAll(newSamples)
+        val newestTs = scoringLookback.maxOf { it.ts }
+        val cutoff = newestTs - GestureConfig.SCORING_LOOKBACK_MS
+        val it = scoringLookback.iterator()
+        while (it.hasNext()) {
+            if (it.next().ts < cutoff) it.remove()
+        }
     }
 
     private fun clearPassivityAndDisarm() {
@@ -572,13 +607,15 @@ class GestureRecognitionService(
             allSamples.clear()
             lastSecondSamples.clear()
             lastTwoSeconds.clear()
+            scoringLookback.clear()
             captureSamples.clear()
 
             allSamples.addAll(allData)
 
             val newestTs = allData.maxOf { it.ts }
             val lastSecondThreshold = newestTs - 1000L
-            val bufferDurationThreshold = newestTs - BUFFER_DURATION_MS
+            val bufferDurationThreshold = newestTs - GestureConfig.BUFFER_DURATION_MS
+            val scoringLookbackThreshold = newestTs - GestureConfig.SCORING_LOOKBACK_MS
 
             allData.forEach { s ->
                 if (s.ts >= lastSecondThreshold) {
@@ -586,6 +623,9 @@ class GestureRecognitionService(
                 }
                 if (s.ts >= bufferDurationThreshold) {
                     lastTwoSeconds.add(s)
+                }
+                if (s.ts >= scoringLookbackThreshold) {
+                    scoringLookback.add(s)
                 }
             }
         }

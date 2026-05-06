@@ -50,8 +50,6 @@ class TestingService(
     companion object {
         private const val TAIL_CAPTURE_MS = 1_000L
         private const val INTER_ATTEMPT_PAUSE_MS = 1_000L
-        private const val BUFFER_DURATION_MS = 2_000L
-        private const val MATCH_DURATION_MS = 300L
     }
 
     private val lock = Any()
@@ -59,9 +57,9 @@ class TestingService(
     // Samples for the current attempt -- everything since the last reset.
     private val activeBuffer = mutableListOf<ImuSample>()
 
-    // Rolling [BUFFER_DURATION_MS] sample buffer used for band-match
+    // Rolling [GestureConfig.BUFFER_DURATION_MS] sample buffer used for band-match
     // decisions. Mirrors GestureRecognitionService.lastTwoSeconds and uses
-    // the same continuous-run detection (≥ MATCH_DURATION_MS in-band).
+    // the same continuous-run detection (≥ GestureConfig.MATCH_DURATION_MS in-band).
     private val lastTwoSeconds = mutableListOf<ImuSample>()
 
     // Set when any catalog gesture was recognised this attempt; null
@@ -156,10 +154,10 @@ class TestingService(
 
             activeBuffer.addAll(parsed)
 
-            // Update the rolling [BUFFER_DURATION_MS] sample buffer.
+            // Update the rolling [GestureConfig.BUFFER_DURATION_MS] sample buffer.
             lastTwoSeconds.addAll(parsed)
             val newest = lastTwoSeconds.maxOf { it.ts }
-            val cutoff = newest - BUFFER_DURATION_MS
+            val cutoff = newest - GestureConfig.BUFFER_DURATION_MS
             val it = lastTwoSeconds.iterator()
             while (it.hasNext()) {
                 if (it.next().ts < cutoff) it.remove()
@@ -246,7 +244,7 @@ class TestingService(
     /**
      * Walk the catalog in [TestingGestures.ALL] order and return the
      * first gesture for which [lastTwoSeconds] contains a continuous
-     * in-band run of at least [MATCH_DURATION_MS]. `null` if none match.
+     * in-band run of at least [GestureConfig.MATCH_DURATION_MS]. `null` if none match.
      * Mirrors GestureRecognitionService.detectAndConsume but does not
      * consume the buffer -- a successful match here moves the attempt
      * into tail-capture, after which the buffer is cleared on the next
@@ -274,7 +272,7 @@ class TestingService(
                 runStart = s.ts
                 continue
             }
-            if (s.ts - runStart!! >= MATCH_DURATION_MS) return s.ts
+            if (s.ts - runStart!! >= GestureConfig.MATCH_DURATION_MS) return s.ts
         }
         return null
     }

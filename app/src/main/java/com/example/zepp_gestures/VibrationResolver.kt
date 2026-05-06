@@ -13,7 +13,12 @@ package com.example.zepp_gestures
  * calls back into its caller, so nesting [lock] inside another lock is
  * safe (no deadlock potential).
  */
-class VibrationResolver {
+class VibrationResolver(
+    // Whether the activation-gesture buzz ("Hand up" / "Hand back" arming
+    // scoring) fires. False suppresses just that one buzz; warnings,
+    // points, scoring-exit and passivity keep their patterns.
+    private val vibrateOnScoringArmed: Boolean = true
+) {
 
     private val lock = Any()
 
@@ -79,11 +84,13 @@ class VibrationResolver {
         if (previous != current) {
             if (current.isWarning) return VibrationCommand(2, "short")
             // Entering a scoring gesture (hand_up -> GESTURE_RED,
-            // hand_back -> GESTURE_BLUE) always gets a distinctive
-            // short-strong buzz so the referee gets a tactile
-            // confirmation that scoring just armed -- in both debug
-            // and prod modes.
-            if (current.isScoring) return VibrationCommand(1, "short_strong")
+            // hand_back -> GESTURE_BLUE). Gated by [vibrateOnScoringArmed]
+            // so prod mode can stay silent during live matches while
+            // debug still gets tactile feedback that scoring armed.
+            if (current.isScoring) {
+                return if (vibrateOnScoringArmed) VibrationCommand(1, "short_strong")
+                else VibrationCommand(0, "short")
+            }
             return VibrationCommand(1, "short")
         }
         return VibrationCommand(0, "short")
