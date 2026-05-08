@@ -6,6 +6,7 @@ import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -13,6 +14,9 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Phase 1: pick a target gesture + an attempt count, then run the test
@@ -34,12 +38,33 @@ class TestingPhase1Fragment : Fragment() {
     private lateinit var progressText: TextView
     private lateinit var filesList: TextView
     private lateinit var backBtn: Button
+    private lateinit var accelGraph: GraphView
+    private lateinit var accelTsText: TextView
 
     private var totalAttempts: Int = DEFAULT_ATTEMPTS
     private val savedFiles = mutableListOf<String>()
 
     companion object {
         private const val DEFAULT_ATTEMPTS = 20
+        private const val GRAPH_REFRESH_MS = 300L
+    }
+
+    private val graphUpdater = object : Runnable {
+        override fun run() {
+            if (!isAdded) return
+            val samples = main.getTestingService()?.getLiveSamples().orEmpty()
+            accelGraph.setSeries(
+                samples.map {
+                    GraphView.Sample(
+                        it.ts,
+                        floatArrayOf(it.ax.toFloat(), it.ay.toFloat(), it.az.toFloat())
+                    )
+                },
+                listOf("ax", "ay", "az")
+            )
+            updateAccelTsText(samples)
+            handler.postDelayed(this, GRAPH_REFRESH_MS)
+        }
     }
 
     override fun onCreateView(
@@ -59,12 +84,28 @@ class TestingPhase1Fragment : Fragment() {
         progressText = view.findViewById(R.id.testingProgressText)
         filesList = view.findViewById(R.id.testingFilesList)
         backBtn = view.findViewById(R.id.testingPhase1BackBtn)
+        accelGraph = view.findViewById(R.id.testingAccelGraph)
+        accelTsText = view.findViewById(R.id.testingAccelTsText)
+
+        accelGraph.setSeries(emptyList(), listOf("ax", "ay", "az"))
+        accelGraph.setMinimumRange(-10f, 10f)
 
         gestureSpinner.adapter = ArrayAdapter(
             requireContext(),
             android.R.layout.simple_spinner_dropdown_item,
             TestingGestures.ALL.map { "${it.id}. ${it.displayName}" }
         )
+
+        // Re-overlay the bands of the currently-selected expected gesture
+        // each time the user changes it, so the chart shows what
+        // detection is actually checking against.
+        gestureSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                applyExpectedGestureBands()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        applyExpectedGestureBands()
 
         backBtn.setOnClickListener {
             main.stopTestingServer()
@@ -104,6 +145,7 @@ class TestingPhase1Fragment : Fragment() {
             )
             switchUiToRunning()
         }
+        handler.post(graphUpdater)
     }
 
     override fun onPause() {
@@ -246,5 +288,45 @@ class TestingPhase1Fragment : Fragment() {
         } else {
             savedFiles.joinToString("\n")
         }
+    }
+
+    /**
+     * Re-overlay the AccelBands of the currently-selected expected
+     * gesture on [accelGraph]. The bands are looked up from the live
+     * [GestureConfig] entry so the chart stays in sync even if the
+     * Kotlin source is edited between runs.
+     */
+    private fun applyExpectedGestureBands() {
+        val expected = expectedGesture()
+        val def = GestureConfig.gestures.firstOrNull { it.name == expected.internalName }
+        if (def == null) {
+            accelGraph.setBands(emptyList())
+            return
+        }
+        val alpha = 0x33
+        val colors = GraphView.DEFAULT_SERIES_COLORS
+        accelGraph.setBands(
+            listOf(
+                GraphView.Band(0, def.bands.axMin.toFloat(), def.bands.axMax.toFloat(), withAlpha(colors[0], alpha)),
+                GraphView.Band(1, def.bands.ayMin.toFloat(), def.bands.ayMax.toFloat(), withAlpha(colors[1], alpha)),
+                GraphView.Band(2, def.bands.azMin.toFloat(), def.bands.azMax.toFloat(), withAlpha(colors[2], alpha))
+            )
+        )
+    }
+
+    private fun withAlpha(color: Int, alpha: Int): Int =
+        (color and 0x00FFFFFF) or (alpha shl 24)
+
+    private fun updateAccelTsText(samples: List<ImuSample>) {
+        if (samples.isEmpty()) {
+            accelTsText.text = "ts: -"
+            return
+        }
+        val minTs = samples.minOf { it.ts }
+        val maxTs = samples.maxOf { it.ts }
+        val midTs = minTs + (maxTs - minTs) / 2
+        val fmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+        accelTsText.text =
+            "ts: ${fmt.format(Date(minTs))} | ${fmt.format(Date(midTs))} | ${fmt.format(Date(maxTs))}"
     }
 }

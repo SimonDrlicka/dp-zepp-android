@@ -224,6 +224,8 @@ class MainActivity : AppCompatActivity() {
 
     fun isTestingRunning(): Boolean = testingService != null
 
+    fun getTestingService(): TestingService? = testingService
+
     /**
      * Proxy to [TestingService.skipCurrentAttempt]. No-op when no test is
      * running or the test is already inside the tail-capture window.
@@ -531,7 +533,14 @@ class MainActivity : AppCompatActivity() {
                 .append(marker).append('\n')
         }
 
-        val ok = writeToDownloads(fileName, csv.toString(), "Exported to Downloads/$fileName")
+        val relativePath = "Download/testing-phase1"
+        val ok = writeToDownloadsSubfolder(
+            fileName = fileName,
+            content = csv.toString(),
+            mimeType = "text/csv",
+            relativePath = relativePath,
+            successMessage = "Saved testing-phase1/$fileName"
+        )
         return if (ok) fileName else null
     }
 

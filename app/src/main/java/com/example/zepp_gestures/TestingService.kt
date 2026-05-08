@@ -50,12 +50,22 @@ class TestingService(
     companion object {
         private const val TAIL_CAPTURE_MS = 1_000L
         private const val INTER_ATTEMPT_PAUSE_MS = 1_000L
+        // Live ring-buffer window powering the UI graph in
+        // [TestingPhase1Fragment]. Kept independent of [activeBuffer]
+        // and [lastTwoSeconds] so the chart stays continuous across
+        // detection / tail capture / inter-attempt cooldown.
+        private const val LIVE_WINDOW_MS = 20_000L
     }
 
     private val lock = Any()
 
     // Samples for the current attempt -- everything since the last reset.
     private val activeBuffer = mutableListOf<ImuSample>()
+
+    // Continuous rolling buffer (LIVE_WINDOW_MS) for the live UI graph.
+    // Updated on every ingest, including during the inter-attempt
+    // cooldown, so the chart never "freezes".
+    private val liveSamplesWindow = mutableListOf<ImuSample>()
 
     // Rolling [GestureConfig.BUFFER_DURATION_MS] sample buffer used for band-match
     // decisions. Mirrors GestureRecognitionService.lastTwoSeconds and uses
@@ -91,6 +101,15 @@ class TestingService(
     }
 
     fun isStopped(): Boolean = synchronized(lock) { stopped }
+
+    /**
+     * Snapshot of the most recent samples within the configured live
+     * window ([LIVE_WINDOW_MS]). Powers the live accelerometer chart in
+     * [TestingPhase1Fragment]; safe to call from any thread.
+     */
+    fun getLiveSamples(): List<ImuSample> = synchronized(lock) {
+        liveSamplesWindow.toList()
+    }
 
     /**
      * Mark the current attempt as "user-confirmed but not detected".
@@ -137,6 +156,16 @@ class TestingService(
             }
 
             val latestTs = parsed.last().ts
+
+            // Always feed the live UI window first, so the graph keeps
+            // updating during the inter-attempt cooldown when the rest
+            // of the pipeline drops samples.
+            liveSamplesWindow.addAll(parsed)
+            val liveCutoff = latestTs - LIVE_WINDOW_MS
+            val liveIt = liveSamplesWindow.iterator()
+            while (liveIt.hasNext()) {
+                if (liveIt.next().ts < liveCutoff) liveIt.remove()
+            }
 
             // Inter-attempt cooldown: drop samples until the pause window
             // elapses. We do not buffer them -- the next attempt should
