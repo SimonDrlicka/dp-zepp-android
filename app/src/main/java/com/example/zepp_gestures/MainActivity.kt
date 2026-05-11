@@ -464,11 +464,10 @@ class MainActivity : AppCompatActivity() {
         val svc = GestureRecognitionService(
             gestureConfig = gestures,
             latestGestureMessage = latestGestureMessage,
-            onGestureSegmentReady = { samples ->
-                handler.post {
-                    exportCsv(samples, "gesture_segment")
-                }
-            },
+            // Per-gesture CSV export disabled: the user only wants a
+            // single CSV at the end of the match. [stopServer] writes
+            // the full session samples + match events + points then.
+            onGestureSegmentReady = { /* no-op */ },
             passivityTrackingEnabled = !prodMode,
             logActivationGestures = !prodMode,
             vibrateOnScoringArmed =
