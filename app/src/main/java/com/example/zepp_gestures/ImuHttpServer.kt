@@ -355,8 +355,11 @@ class ImuHttpServer(
         updateBuffers(parsed)
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
-        val newEventGestures = updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
-        val (passivityStarted, passivityExpired) = updatePassivity(activeGestures, parsed.last().ts)
+        // Side effects (matchEvents append, passivity deadlines) are kept
+        // even though their return values aren't read in this build --
+        // they keep the recognition pipeline state coherent with prod.
+        updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
+        updatePassivity(activeGestures, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -367,7 +370,10 @@ class ImuHttpServer(
         val blue = bluePoints.get()
         val red = redPoints.get()
         val score = "$blue-$red"
-        val vibrationCmd = resolveVibration(modeChange, passivityStarted, passivityExpired, newEventGestures)
+        // Data-collection build: vibration commands are deliberately not
+        // emitted -- the watch stays silent while we record raw samples.
+        // [resolveVibration] is still defined for the prod build to use
+        // once this branch merges back.
 
         return """{
             "status":"ok",
@@ -379,9 +385,7 @@ class ImuHttpServer(
             "bluePoints":$blue,
             "redPoints":$red,
             "score":"$score",
-            "message":"$message",
-            "vibration":${vibrationCmd.count},
-            "vibrationDuration":"${vibrationCmd.duration}"
+            "message":"$message"
         }"""
     }
 
@@ -410,8 +414,10 @@ class ImuHttpServer(
         val modeChange = updateMode(activeGestures)
         updatePoints(parsed)
         updateCapture(parsed, modeChange)
-        val newEventGestures = updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
-        val (passivityStarted, passivityExpired) = updatePassivity(activeGestures, parsed.last().ts)
+        // See handleGyroDataFull: result values ignored, calls kept for
+        // their state side effects.
+        updateMatchEvents(activeGestures, modeChange, parsed.last().ts)
+        updatePassivity(activeGestures, parsed.last().ts)
         val message = if (activeGestures.isEmpty()) {
             "No gesture detected"
         } else {
@@ -422,7 +428,8 @@ class ImuHttpServer(
         val blue = bluePoints.get()
         val red = redPoints.get()
         val score = "$blue-$red"
-        val vibrationCmd = resolveVibration(modeChange, passivityStarted, passivityExpired, newEventGestures)
+        // Data-collection build: vibration suppressed (see comment in
+        // handleGyroDataFull above).
 
         return """{
             "status":"ok",
@@ -434,9 +441,7 @@ class ImuHttpServer(
             "bluePoints":$blue,
             "redPoints":$red,
             "score":"$score",
-            "message":"$message",
-            "vibration":${vibrationCmd.count},
-            "vibrationDuration":"${vibrationCmd.duration}"
+            "message":"$message"
         }"""
     }
 

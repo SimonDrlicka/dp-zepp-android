@@ -7,7 +7,6 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.tabs.TabLayout
 import fi.iki.elonen.NanoHTTPD
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -27,30 +26,14 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
-        tabLayout.addTab(tabLayout.newTab().setText("Debug"))
-        tabLayout.addTab(tabLayout.newTab().setText("Prod"))
-
+        // Data-collection build: only the graph view, no Debug/Prod
+        // tabs. ProdFragment stays in the codebase but is unreachable
+        // here.
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
                 .replace(R.id.fragmentContainer, DebugFragment())
                 .commit()
         }
-
-        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab) {
-                val fragment = when (tab.position) {
-                    0 -> DebugFragment()
-                    1 -> ProdFragment()
-                    else -> DebugFragment()
-                }
-                supportFragmentManager.beginTransaction()
-                    .replace(R.id.fragmentContainer, fragment)
-                    .commit()
-            }
-            override fun onTabUnselected(tab: TabLayout.Tab) {}
-            override fun onTabReselected(tab: TabLayout.Tab) {}
-        })
     }
 
     override fun onDestroy() {
