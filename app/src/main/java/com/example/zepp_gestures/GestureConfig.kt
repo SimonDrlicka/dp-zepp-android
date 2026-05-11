@@ -20,8 +20,12 @@ object GestureConfig {
     const val POINT_GYRO_SCALE = 100.0
     val gestures: List<GestureDefinition> = listOf(
         GestureDefinition(
+            // Internal identifier kept as "Hand up" -- it's the lookup
+            // key used elsewhere in the pipeline. Only [message] (and
+            // any display-side mapping) shows the user-facing
+            // "Rise arm".
             name = "Hand up",
-            message = "Gesture detected: hand up",
+            message = "Gesture detected: rise arm",
             bands = AccelBands(
                 axMin = 7.69,
                 axMax = 10.5,

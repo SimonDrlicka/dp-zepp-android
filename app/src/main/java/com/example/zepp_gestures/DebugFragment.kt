@@ -121,7 +121,11 @@ class DebugFragment : Fragment() {
             }
         }
 
-        val options = gestures.map { it.name }
+        // Pose dropdown shows the user-facing label ("Rise arm" instead
+        // of the internal "Hand up" identifier). Position index still
+        // maps back to [gestures] verbatim, so selectedGesture and the
+        // pipeline keep using the canonical names.
+        val options = gestures.map { poseDisplayLabel(it.name) }
         poseSelect.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, options)
         poseSelect.setSelection(0)
         poseSelect.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -196,6 +200,14 @@ class DebugFragment : Fragment() {
 
     private fun withAlpha(color: Int, alpha: Int): Int {
         return (color and 0x00FFFFFF) or (alpha shl 24)
+    }
+
+    // Display-only rename of activation gestures. The internal
+    // [GestureDefinition.name] keeps "Hand up" so identifier lookups
+    // across the pipeline stay valid; the UI shows "Rise arm".
+    private fun poseDisplayLabel(internalName: String): String = when (internalName) {
+        "Hand up" -> "Rise arm"
+        else -> internalName
     }
 
     private fun updatePassivityTimer(server: ImuHttpServer?) {

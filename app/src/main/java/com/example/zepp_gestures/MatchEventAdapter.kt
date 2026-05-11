@@ -35,8 +35,18 @@ class MatchEventAdapter : RecyclerView.Adapter<MatchEventAdapter.ViewHolder>() {
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val event = events[position]
-        (holder.itemView as TextView).text = "${fmt.format(Date(event.ts))}  ${event.event}"
+        (holder.itemView as TextView).text =
+            "${fmt.format(Date(event.ts))}  ${displayLabel(event.event)}"
     }
+
+    /**
+     * Display-only rename of the activation-gesture identifier. The
+     * underlying [MatchEvent.event] (and therefore any CSV export or
+     * downstream tooling) keeps the canonical "Hand up" string so the
+     * recognition pipeline and external parsers stay in sync.
+     */
+    private fun displayLabel(eventText: String): String =
+        eventText.replace("Hand up", "Rise arm")
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view)
 }
