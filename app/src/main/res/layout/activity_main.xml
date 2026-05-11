@@ -11,18 +11,20 @@
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/backToModeBtn"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:minWidth="0dp"
+            android:minHeight="40dp"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:layout_marginStart="4dp"
             android:text="← Back"
             android:textSize="14sp"
-            android:contentDescription="Back to mode select"
-            style="?android:attr/borderlessButtonStyle"/>
+            android:textColor="?attr/colorPrimary"
+            android:contentDescription="Back to mode select"/>
 
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tabLayout"

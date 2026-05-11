@@ -132,12 +132,12 @@ class DebugFragment : Fragment() {
         view.findViewById<Button>(R.id.startBtn).setOnClickListener {
             val prod = main.selectedProdMode == true
             main.startServer(prodMode = prod)
-            statusText.text = "Server running on port 8080 (${if (prod) "prod" else "debug"})"
+            statusText.text = "Match in progress (${if (prod) "prod" else "debug"})"
         }
 
         view.findViewById<Button>(R.id.stopBtn).setOnClickListener {
             main.stopServer()
-            statusText.text = "Server stopped"
+            statusText.text = "Match ended"
             modeText.text = "Mode: waiting | No gesture detected"
             pointsText.text = "Blue: 0 | Red: 0 | Freq: -"
             gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
@@ -151,7 +151,7 @@ class DebugFragment : Fragment() {
         }
 
         if (main.server != null) {
-            statusText.text = "Server running on port 8080"
+            statusText.text = "Match in progress"
         }
     }
 

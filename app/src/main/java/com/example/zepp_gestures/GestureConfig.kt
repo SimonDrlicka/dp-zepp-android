@@ -49,8 +49,13 @@ object GestureConfig {
     const val VIBRATE_ON_SCORING_ARMED_IN_PROD = false
     val gestures: List<GestureDefinition> = listOf(
         GestureDefinition(
+            // Internal identifier kept as "Hand up" -- it's the lookup
+            // key used by GestureRecognitionService, TestingGestures,
+            // CompositeTestRunner and the Python dashboard parser. Only
+            // the [message] (and the MatchEventAdapter display mapping)
+            // shows the user-facing "Rise arm".
             name = "Hand up",
-            message = "Gesture detected: hand up",
+            message = "Gesture detected: rise arm",
             bands = AccelBands(
                 axMin = 7.69,
                 axMax = 10.5,

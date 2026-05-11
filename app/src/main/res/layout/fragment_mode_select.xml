@@ -19,7 +19,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:text="Debug runs the full pipeline (graphs, automatic 30 s passivity timer, automatic penalty point). Production keeps everything except the passivity timer / automatic penalty -- the referee handles passivity manually."
+        android:text="Debug: logs all gestures (including activation), full vibrations, 30 s passivity timer.\n\nProduction: logs only key events, limited vibrations, no passivity timer."
         android:textSize="13sp"
         android:layout_marginBottom="32dp"/>
 
@@ -41,5 +41,6 @@
         android:id="@+id/modeTestingBtn"
         android:layout_width="220dp"
         android:layout_height="wrap_content"
-        android:text="Testing"/>
+        android:text="Testing"
+        android:visibility="gone"/>
 </LinearLayout>

@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
 import com.example.zepp_gestures.composite.AttemptOutcome
 import com.example.zepp_gestures.composite.CompositeScenario
 import com.example.zepp_gestures.composite.CompositeTestFragment
@@ -62,24 +63,6 @@ class MainActivity : AppCompatActivity() {
             selectedProdMode = savedInstanceState.getBoolean(STATE_PROD_MODE)
         }
 
-        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
-        tabLayout.addTab(tabLayout.newTab().setText("Graphs"))
-        tabLayout.addTab(tabLayout.newTab().setText("Events"))
-        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab) {
-                val fragment = when (tab.position) {
-                    0 -> DebugFragment()
-                    1 -> ProdFragment()
-                    else -> DebugFragment()
-                }
-                supportFragmentManager.beginTransaction()
-                    .replace(R.id.fragmentContainer, fragment)
-                    .commit()
-            }
-            override fun onTabUnselected(tab: TabLayout.Tab) {}
-            override fun onTabReselected(tab: TabLayout.Tab) {}
-        })
-
         findViewById<Button>(R.id.backToModeBtn).setOnClickListener {
             backToModeSelect()
         }
@@ -93,10 +76,44 @@ class MainActivity : AppCompatActivity() {
         } else {
             // Configuration change: keep top bar visibility in sync with
             // whether a mode was chosen. The fragment manager restores the
-            // last committed fragment on its own, so we don't replace it.
+            // last committed fragment on its own, so we don't replace it,
+            // but we still re-attach the tab listener so taps continue to
+            // swap fragments after rotation.
             findViewById<View>(R.id.topBar).visibility =
                 if (selectedProdMode == null) View.GONE else View.VISIBLE
+            selectedProdMode?.let { setupTabs(it) }
         }
+    }
+
+    /**
+     * Rebuild the Graphs/Events tab bar with the correct ordering for
+     * [prodMode]. Prod opens directly into the event log (tab index 0 =
+     * Events), debug keeps the graph view as the default. Position 0 of
+     * the resulting tab list is therefore always the "default for this
+     * mode" tab.
+     */
+    private fun setupTabs(prodMode: Boolean) {
+        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
+        tabLayout.clearOnTabSelectedListeners()
+        tabLayout.removeAllTabs()
+
+        val tabs: List<Pair<String, () -> Fragment>> = if (prodMode) {
+            listOf("Events" to { ProdFragment() }, "Graphs" to { DebugFragment() })
+        } else {
+            listOf("Graphs" to { DebugFragment() }, "Events" to { ProdFragment() })
+        }
+        tabs.forEach { (label, _) -> tabLayout.addTab(tabLayout.newTab().setText(label)) }
+
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                val factory = tabs.getOrNull(tab.position)?.second ?: return
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.fragmentContainer, factory())
+                    .commit()
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -113,12 +130,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTabsWithDefaultFragment() {
         findViewById<View>(R.id.topBar).visibility = View.VISIBLE
-        // Always reset the tab selection to the first tab so that returning
-        // to the tabs after a mode change starts on Graphs.
-        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
-        tabLayout.getTabAt(0)?.select()
+        val prodMode = selectedProdMode == true
+        setupTabs(prodMode)
+        // setupTabs put the mode's default tab at index 0; the listener
+        // doesn't fire for the initial selection, so render the matching
+        // fragment explicitly.
+        findViewById<TabLayout>(R.id.tabLayout).getTabAt(0)?.select()
+        val defaultFragment: Fragment = if (prodMode) ProdFragment() else DebugFragment()
         supportFragmentManager.beginTransaction()
-            .replace(R.id.fragmentContainer, DebugFragment())
+            .replace(R.id.fragmentContainer, defaultFragment)
             .commit()
     }
 
@@ -475,7 +495,11 @@ class MainActivity : AppCompatActivity() {
         exportPointsCsv(blue, red)
         s.stop()
         server = null
-        service = null
+        // service intentionally kept alive: ProdFragment keeps polling
+        // it to leave the match log + final score on screen as a summary
+        // after the server stops. The next startServer() reassigns it to
+        // a fresh instance, which clears the displayed log automatically
+        // on the following poll tick.
     }
 
     fun exportAllCsv() {

@@ -69,20 +69,27 @@ class ProdFragment : Fragment() {
 
         view.findViewById<Button>(R.id.startBtn).setOnClickListener {
             val prod = main.selectedProdMode == true
+            // The previous session's log + score stayed on screen after
+            // stop -- clear them eagerly so the new session doesn't
+            // appear to "inherit" old data for up to one poll tick.
+            adapter.submitList(emptyList())
+            lastEventCount = 0
+            pointsText.text = "Blue: 0 | Red: 0"
+            passivityTimerText.visibility = View.GONE
             main.startServer(prodMode = prod)
-            statusText.text = "Server running (${if (prod) "prod" else "debug"})"
+            statusText.text = "Match in progress (${if (prod) "prod" else "debug"})"
         }
 
         view.findViewById<Button>(R.id.stopBtn).setOnClickListener {
             main.stopServer()
-            statusText.text = "Server not running"
-            pointsText.text = "Blue: 0 | Red: 0"
-            adapter.submitList(emptyList())
-            lastEventCount = 0
+            statusText.text = "Match ended"
+            // Score / passivity timer / event log intentionally NOT
+            // reset -- they stay visible as a match summary until the
+            // user presses Start again.
         }
 
         if (main.server != null) {
-            statusText.text = "Server running"
+            statusText.text = "Match in progress"
         }
     }
 

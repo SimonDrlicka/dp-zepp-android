@@ -9,7 +9,7 @@
         android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Server not running"
+        android:text="Match not started"
         android:textSize="16sp"
         android:paddingBottom="8dp"/>
 
@@ -61,7 +61,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Start server"/>
+            android:text="Start match"/>
 
         <Button
             android:id="@+id/stopBtn"
@@ -69,6 +69,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:text="Stop server"/>
+            android:text="End match"/>
     </LinearLayout>
 </LinearLayout>

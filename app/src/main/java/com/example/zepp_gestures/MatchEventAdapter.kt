@@ -77,9 +77,19 @@ class MatchEventAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val event = getItem(position)
-        holder.text.text = "${fmt.format(Date(event.ts))}  ${event.event}"
+        holder.text.text = "${fmt.format(Date(event.ts))}  ${displayLabel(event.event)}"
         holder.deleteBtn.setOnClickListener { onDeleteRequest(event) }
     }
+
+    /**
+     * Display-only rename of the activation-gesture identifier. The
+     * underlying [MatchEvent.event] (and therefore the CSV export and
+     * any downstream tooling) keeps the canonical "Hand up" string so
+     * the recognition pipeline / Python dashboard / TestingGestures
+     * lookup all stay in sync.
+     */
+    private fun displayLabel(eventText: String): String =
+        eventText.replace("Hand up", "Rise arm")
 
     class ViewHolder(
         row: View,
