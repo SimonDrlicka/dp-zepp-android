@@ -152,6 +152,41 @@ class GestureRecognitionService(
         matchEvents.toList()
     }
 
+    /**
+     * Remove [target] from the live match-event log and roll back its
+     * direct score side-effect. Lets the referee correct a false
+     * detection mid-match (e.g. a phantom flick that scored a point).
+     *
+     * Score reverts:
+     *  - "Red point ..."                       -> red--
+     *  - "Blue point ..."                      -> blue--
+     *  - "Passivity red penalty (blue +1)"     -> blue--
+     *  - "Passivity blue penalty (red +1)"     -> red--
+     * everything else: no score change.
+     *
+     * Counters are floored at 0 so accidental double-delete can't push
+     * the score negative. Mode transitions, passivity deadlines,
+     * vibration latching etc. are *not* unwound -- the match has
+     * already moved on, and "best-effort" rollback there would mislead
+     * more than it would correct. Returns true when [target] was found
+     * and removed.
+     */
+    fun deleteMatchEvent(target: MatchEvent): Boolean {
+        val removed = synchronized(lock) { matchEvents.remove(target) }
+        if (!removed) return false
+        when {
+            target.event.startsWith("Red point") ->
+                redPoints.updateAndGet { (it - 1).coerceAtLeast(0) }
+            target.event.startsWith("Blue point") ->
+                bluePoints.updateAndGet { (it - 1).coerceAtLeast(0) }
+            target.event.startsWith("Passivity red penalty") ->
+                bluePoints.updateAndGet { (it - 1).coerceAtLeast(0) }
+            target.event.startsWith("Passivity blue penalty") ->
+                redPoints.updateAndGet { (it - 1).coerceAtLeast(0) }
+        }
+        return true
+    }
+
     fun getPassivityDeadlines(): Pair<Long, Long> = synchronized(lock) {
         passivityRedDeadline to passivityBlueDeadline
     }

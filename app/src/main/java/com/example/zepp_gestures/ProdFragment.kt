@@ -8,18 +8,23 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ProdFragment : Fragment() {
 
     private val handler = Handler(Looper.getMainLooper())
+    private val eventTimeFmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private lateinit var statusText: TextView
     private lateinit var pointsText: TextView
     private lateinit var passivityTimerText: TextView
     private lateinit var eventList: RecyclerView
-    private val adapter = MatchEventAdapter()
+    private val adapter = MatchEventAdapter(onDeleteRequest = ::confirmDeleteEvent)
 
     private val main: MainActivity get() = activity as MainActivity
 
@@ -90,6 +95,27 @@ class ProdFragment : Fragment() {
     override fun onPause() {
         handler.removeCallbacks(uiUpdater)
         super.onPause()
+    }
+
+    private fun confirmDeleteEvent(event: MatchEvent) {
+        val service = main.service ?: return
+        val timeStr = eventTimeFmt.format(Date(event.ts))
+        AlertDialog.Builder(requireContext())
+            .setTitle("Vymazať event?")
+            .setMessage("$timeStr  ${event.event}")
+            .setPositiveButton("Vymazať") { _, _ ->
+                if (service.deleteMatchEvent(event)) {
+                    // Refresh immediately so the user sees the result
+                    // without waiting for the 300 ms poll tick.
+                    val updated = service.getMatchEvents()
+                    adapter.submitList(updated)
+                    lastEventCount = updated.size
+                    val (blue, red) = service.getPoints()
+                    pointsText.text = "Blue: $blue | Red: $red"
+                }
+            }
+            .setNegativeButton("Zrušiť", null)
+            .show()
     }
 
     private fun updatePassivityTimer(service: GestureRecognitionService?) {
