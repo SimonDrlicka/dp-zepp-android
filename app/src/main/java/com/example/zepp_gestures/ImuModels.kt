@@ -12,7 +12,8 @@ data class ImuSample(
 
 data class MatchEvent(
     val ts: Long,
-    val event: String
+    val event: String,
+    val invalidated: Boolean = false
 )
 
 data class VibrationCommand(

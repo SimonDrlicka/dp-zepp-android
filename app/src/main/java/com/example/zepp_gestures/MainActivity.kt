@@ -604,11 +604,12 @@ class MainActivity : AppCompatActivity() {
 
         val csv = StringBuilder()
         csv.append("# result: blue=$blue red=$red\n")
-        csv.append("timestamp,datetime,event\n")
+        csv.append("timestamp,datetime,event,invalidated\n")
         events.forEach { e ->
             csv.append(e.ts).append(',')
                 .append(fmt.format(Date(e.ts))).append(',')
-                .append(e.event).append('\n')
+                .append(e.event).append(',')
+                .append(if (e.invalidated) 1 else 0).append('\n')
         }
 
         writeToDownloads(fileName, csv.toString(), "Events exported to Downloads/$fileName")

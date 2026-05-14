@@ -1,5 +1,6 @@
 package com.example.zepp_gestures
 
+import android.graphics.Paint
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -78,7 +79,16 @@ class MatchEventAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val event = getItem(position)
         holder.text.text = "${fmt.format(Date(event.ts))}  ${displayLabel(event.event)}"
-        holder.deleteBtn.setOnClickListener { onDeleteRequest(event) }
+        holder.text.paintFlags = if (event.invalidated) {
+            holder.text.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+        } else {
+            holder.text.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+        }
+        holder.text.alpha = if (event.invalidated) 0.5f else 1f
+        holder.deleteBtn.visibility = if (event.invalidated) View.INVISIBLE else View.VISIBLE
+        holder.deleteBtn.setOnClickListener(
+            if (event.invalidated) null else View.OnClickListener { onDeleteRequest(event) }
+        )
     }
 
     /**
@@ -99,9 +109,9 @@ class MatchEventAdapter(
 
     companion object {
         // [ts, event] uniquely identifies a match event in a single
-        // session (timestamps are monotonic ms). Contents never mutate
-        // after creation -- deletes drop the row whole, no in-place
-        // edits -- so a structural equality check is enough for both.
+        // session (timestamps are monotonic ms). The [invalidated] flag
+        // can flip true via soft-delete, so areContentsTheSame relies on
+        // full structural equality to repaint the strike-through row.
         private val DIFF = object : DiffUtil.ItemCallback<MatchEvent>() {
             override fun areItemsTheSame(old: MatchEvent, new: MatchEvent): Boolean =
                 old.ts == new.ts && old.event == new.event
