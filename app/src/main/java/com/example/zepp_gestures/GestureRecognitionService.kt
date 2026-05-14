@@ -203,7 +203,14 @@ class GestureRecognitionService(
         sessionSamples.toList()
     }
 
-    fun resetPoints() {
+    /**
+     * Full reset between Phase 2 composite-test attempts: zero score, drop
+     * all events, clear sliding windows and capture buffers, return to
+     * WAITING. Leaves [sessionSamples] alone so the caller (which exports
+     * per-attempt CSVs) can read the slice it cares about and clear it
+     * separately via [clearSessionSamples].
+     */
+    fun resetForNextAttempt() {
         bluePoints.set(0)
         redPoints.set(0)
         synchronized(lock) {
@@ -213,20 +220,6 @@ class GestureRecognitionService(
             pointsThisGesture = 0
             previousPassivityRedActive = false
             previousPassivityBlueActive = false
-        }
-        vibrationResolver.reset()
-    }
-
-    /**
-     * Full reset between Phase 2 composite-test attempts: zero score, drop
-     * all events, clear sliding windows and capture buffers, return to
-     * WAITING. Leaves [sessionSamples] alone so the caller (which exports
-     * per-attempt CSVs) can read the slice it cares about and clear it
-     * separately via [clearSessionSamples].
-     */
-    fun resetForNextAttempt() {
-        resetPoints()
-        synchronized(lock) {
             currentMode.set(GestureMode.WAITING)
             matchEvents.clear()
             previousActiveEventGestures.clear()
@@ -235,6 +228,7 @@ class GestureRecognitionService(
             scoringLookback.clear()
             captureSamples.clear()
         }
+        vibrationResolver.reset()
     }
 
     /**
@@ -616,16 +610,12 @@ class GestureRecognitionService(
         if (newSamples.isEmpty()) return
 
         synchronized(lock) {
-            // 1️⃣ append to full history
             allSamples.addAll(newSamples)
-
-            // 2️⃣ update last-second window
             lastSecondSamples.addAll(newSamples)
 
             val newestTs = lastSecondSamples.maxOf { it.ts }
-            val threshold = newestTs - 1000  // last 1 second
+            val threshold = newestTs - 1000
 
-            // remove everything older than 1 second
             val it = lastSecondSamples.iterator()
             while (it.hasNext()) {
                 if (it.next().ts < threshold) {

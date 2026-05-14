@@ -9,13 +9,6 @@ class ImuHttpServer(
     port: Int = 8080
 ) : NanoHTTPD(port) {
 
-    private val receiveRequestTimestamps = mutableListOf<Long>()
-    private val lock = Any()
-
-    companion object {
-        private const val RECEIVE_FREQ_WINDOW_MS = 1_000L
-    }
-
     override fun serve(session: IHTTPSession): Response {
         return try {
             when {
@@ -43,8 +36,6 @@ class ImuHttpServer(
         session: IHTTPSession,
         ingest: (List<ImuSample>) -> IngestResult
     ): Response {
-        recordReceiveRequest()
-
         val files = HashMap<String, String>()
         session.parseBody(files)
         val body = files["postData"] ?: ""
@@ -93,23 +84,4 @@ class ImuHttpServer(
         }"""
     }
 
-    private fun recordReceiveRequest() {
-        val now = System.currentTimeMillis()
-        synchronized(lock) {
-            receiveRequestTimestamps.add(now)
-            val threshold = now - RECEIVE_FREQ_WINDOW_MS
-            receiveRequestTimestamps.removeAll { it < threshold }
-        }
-    }
-
-    fun getReceiveRequestFrequencyHz(): Double = synchronized(lock) {
-        if (receiveRequestTimestamps.size < 2) {
-            return@synchronized if (receiveRequestTimestamps.isEmpty()) 0.0 else -1.0
-        }
-
-        val minTs = receiveRequestTimestamps.minOrNull() ?: return@synchronized 0.0
-        val maxTs = receiveRequestTimestamps.maxOrNull() ?: return@synchronized 0.0
-        val durationMs = (maxTs - minTs).coerceAtLeast(1L)
-        (receiveRequestTimestamps.size - 1) * 1000.0 / durationMs
-    }
 }

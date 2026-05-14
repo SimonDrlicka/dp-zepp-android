@@ -48,8 +48,6 @@ class GraphView @JvmOverloads constructor(
     private var labels: List<String> = emptyList()
     private var bands: List<Band> = emptyList()
     private var horizontalLines: List<HorizontalLine> = emptyList()
-    private var fixedMin: Float? = null
-    private var fixedMax: Float? = null
     private var floorMin: Float? = null
     private var floorMax: Float? = null
 
@@ -69,18 +67,6 @@ class GraphView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun setFixedRange(min: Float, max: Float) {
-        fixedMin = min
-        fixedMax = max
-        invalidate()
-    }
-
-    fun clearFixedRange() {
-        fixedMin = null
-        fixedMax = null
-        invalidate()
-    }
-
     fun setMinimumRange(min: Float, max: Float) {
         floorMin = min
         floorMax = max
@@ -97,7 +83,6 @@ class GraphView @JvmOverloads constructor(
 
         if (right <= left || bottom <= top) return
 
-        // Grid
         val gridLines = 4
         for (i in 0..gridLines) {
             val y = top + (bottom - top) * (i / gridLines.toFloat())
@@ -115,21 +100,19 @@ class GraphView @JvmOverloads constructor(
         val minTs = samples.minOf { it.ts }
         val maxTs = samples.maxOf { it.ts }
 
-        var minVal = fixedMin ?: Float.POSITIVE_INFINITY
-        var maxVal = fixedMax ?: Float.NEGATIVE_INFINITY
-        if (fixedMin == null || fixedMax == null) {
-            samples.forEach { s ->
-                s.values.forEach { v ->
-                    minVal = min(minVal, v)
-                    maxVal = max(maxVal, v)
-                }
+        var minVal = Float.POSITIVE_INFINITY
+        var maxVal = Float.NEGATIVE_INFINITY
+        samples.forEach { s ->
+            s.values.forEach { v ->
+                minVal = min(minVal, v)
+                maxVal = max(maxVal, v)
             }
-            floorMin?.let { minVal = min(minVal, it) }
-            floorMax?.let { maxVal = max(maxVal, it) }
-            if (minVal == maxVal) {
-                minVal -= 1f
-                maxVal += 1f
-            }
+        }
+        floorMin?.let { minVal = min(minVal, it) }
+        floorMax?.let { maxVal = max(maxVal, it) }
+        if (minVal == maxVal) {
+            minVal -= 1f
+            maxVal += 1f
         }
 
         val tsRange = max(1L, maxTs - minTs)

@@ -33,10 +33,4 @@ object TestingGestures {
         TestingGesture(7, "napomenutie-modry",   "NAPOMENUTIE — modrý",   "Warning blue"),
         TestingGesture(8, "touche",              "TOUCHE",                "Touche")
     )
-
-    fun byInternalName(name: String): TestingGesture? =
-        ALL.firstOrNull { it.internalName == name }
-
-    fun byId(id: Int): TestingGesture? =
-        ALL.firstOrNull { it.id == id }
 }

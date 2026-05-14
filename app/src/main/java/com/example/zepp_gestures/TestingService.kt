@@ -100,8 +100,6 @@ class TestingService(
         synchronized(lock) { stopped = true }
     }
 
-    fun isStopped(): Boolean = synchronized(lock) { stopped }
-
     /**
      * Snapshot of the most recent samples within the configured live
      * window ([LIVE_WINDOW_MS]). Powers the live accelerometer chart in
