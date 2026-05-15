@@ -29,23 +29,14 @@ class MainActivity : AppCompatActivity() {
     val latestGestureMessage = AtomicReference("No gesture detected")
     val gestures = GestureConfig.gestures
 
-    // Selected once on the mode-select screen. null until the user picks
-    // Debug or Production. Persisted across rotation via savedInstanceState.
     var selectedProdMode: Boolean? = null
         private set
 
-    // Testing-mode pipeline. Mutually exclusive with [service] -- only one
-    // can be wired up to [server] at a time (single port 8080).
     private var testingService: TestingService? = null
     private var testingAttemptListener: ((List<ImuSample>, Int, Long?, TestingGesture?) -> Unit)? = null
     private var testingFinishedListener: (() -> Unit)? = null
     private var testingProgressListener: ((Int, Int, Boolean, Boolean) -> Unit)? = null
 
-    // Composite (Phase 2) testing pipeline. Drives a real
-    // [GestureRecognitionService] (the same one prod/debug use) and
-    // forwards every newly-emitted MatchEvent to the listener that
-    // [CompositeTestFragment] registers per attempt. We keep the service
-    // alive across attempts and reset it via [resetCompositeForNextAttempt].
     private var compositeService: GestureRecognitionService? = null
     private var compositeMatchEventListener: ((MatchEvent) -> Unit)? = null
 
@@ -74,24 +65,13 @@ class MainActivity : AppCompatActivity() {
                 showTabsWithDefaultFragment()
             }
         } else {
-            // Configuration change: keep top bar visibility in sync with
-            // whether a mode was chosen. The fragment manager restores the
-            // last committed fragment on its own, so we don't replace it,
-            // but we still re-attach the tab listener so taps continue to
-            // swap fragments after rotation.
+
             findViewById<View>(R.id.topBar).visibility =
                 if (selectedProdMode == null) View.GONE else View.VISIBLE
             selectedProdMode?.let { setupTabs(it) }
         }
     }
 
-    /**
-     * Rebuild the Graphs/Events tab bar with the correct ordering for
-     * [prodMode]. Prod opens directly into the event log (tab index 0 =
-     * Events), debug keeps the graph view as the default. Position 0 of
-     * the resulting tab list is therefore always the "default for this
-     * mode" tab.
-     */
     private fun setupTabs(prodMode: Boolean) {
         val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
         tabLayout.clearOnTabSelectedListeners()
@@ -132,9 +112,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.topBar).visibility = View.VISIBLE
         val prodMode = selectedProdMode == true
         setupTabs(prodMode)
-        // setupTabs put the mode's default tab at index 0; the listener
-        // doesn't fire for the initial selection, so render the matching
-        // fragment explicitly.
+
         findViewById<TabLayout>(R.id.tabLayout).getTabAt(0)?.select()
         val defaultFragment: Fragment = if (prodMode) ProdFragment() else DebugFragment()
         supportFragmentManager.beginTransaction()
@@ -148,9 +126,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun backToModeSelect() {
-        // Stop any running server so the next pick starts a clean service
-        // with the correct flags. All three stop helpers are idempotent
-        // when their pipeline isn't active.
+
         when {
             isTestingRunning() -> stopTestingServer()
             isCompositeRunning() -> stopCompositeServer()
@@ -188,11 +164,6 @@ class MainActivity : AppCompatActivity() {
             .commit()
     }
 
-    /**
-     * Spin up the HTTP server with a fresh [TestingService]. Returns
-     * `true` on success, `false` if a server is already running or the
-     * port couldn't be bound.
-     */
     fun startTestingServer(
         attemptCount: Int,
         onAttemptCompleted: (List<ImuSample>, Int, Long?, TestingGesture?) -> Unit,
@@ -246,20 +217,10 @@ class MainActivity : AppCompatActivity() {
 
     fun getTestingService(): TestingService? = testingService
 
-    /**
-     * Proxy to [TestingService.skipCurrentAttempt]. No-op when no test is
-     * running or the test is already inside the tail-capture window.
-     */
     fun skipCurrentTestingAttempt() {
         testingService?.skipCurrentAttempt()
     }
 
-    /**
-     * Re-attach the listener trio to the currently-running [TestingService]
-     * after a fragment view recreates (e.g. after a rotation). Safe to call
-     * even if no test is running -- the listeners are stored unconditionally
-     * and will simply never fire.
-     */
     fun bindTestingCallbacks(
         onAttemptCompleted: (List<ImuSample>, Int, Long?, TestingGesture?) -> Unit,
         onTestFinished: () -> Unit,
@@ -276,24 +237,13 @@ class MainActivity : AppCompatActivity() {
         testingProgressListener = null
     }
 
-    /**
-     * Boot the HTTP server for Phase 2. Uses a real
-     * [GestureRecognitionService] -- the app must actually transition
-     * modes and score points so the test verifies that whole pipeline
-     * end-to-end. Passivity is disabled (no 30 s timer / auto-penalty)
-     * and activation gestures are logged into match events so the
-     * runner can observe Hand_up / Hand_back / Hand_down.
-     *
-     * Returns true on success, false if a server is already running or
-     * the port couldn't be bound.
-     */
     fun startCompositeServer(): Boolean {
         if (server != null) return false
 
         val svc = GestureRecognitionService(
             gestureConfig = gestures,
             latestGestureMessage = latestGestureMessage,
-            onGestureSegmentReady = { /* not used in composite testing */ },
+            onGestureSegmentReady = {  },
             passivityTrackingEnabled = false,
             logActivationGestures = true,
             onMatchEventEmitted = { event ->
@@ -339,24 +289,12 @@ class MainActivity : AppCompatActivity() {
         compositeService?.clearSessionSamples()
     }
 
-    /**
-     * Export both the CSV (raw IMU samples + a `detected` column carrying
-     * the Phase 2 gesture ID on each detection row) and the JSON
-     * metadata for one attempt. Files land in
-     * `Downloads/testing/composite/<scenarioId>/`.
-     *
-     * Returns the saved CSV/JSON filenames on success, or `null`s if the
-     * write failed.
-     */
     fun exportCompositeAttemptFiles(
         scenario: CompositeScenario,
         attemptNumber: Int,
         samples: List<ImuSample>,
         outcome: AttemptOutcome,
-        // Per-run suffix shared by every attempt of one test session, so
-        // running the same scenario again doesn't overwrite the previous
-        // run's CSV/JSON files. Generated once in [CompositeTestFragment]
-        // when the run starts.
+
         runTimestamp: String
     ): Pair<String?, String?> {
         if (samples.isEmpty()) {
@@ -369,10 +307,6 @@ class MainActivity : AppCompatActivity() {
         val jsonName = "$baseName.json"
         val relativePath = "Download/testing/composite/${scenario.id}"
 
-        // Build a quick lookup of detection timestamps -> composite ID so
-        // every matching sample row gets the right marker. Multiple
-        // detections can land on the same ts only in pathological cases;
-        // in that case the first one wins.
         val detectionMarkers = HashMap<Long, Int>()
         outcome.actualGestures.forEach { det ->
             detectionMarkers.putIfAbsent(det.timestamp, det.gestureId)
@@ -410,13 +344,6 @@ class MainActivity : AppCompatActivity() {
         return (if (csvOk) csvName else null) to (if (jsonOk) jsonName else null)
     }
 
-    /**
-     * Variant of [writeToDownloads] that places the file inside a
-     * sub-folder of `Downloads/`. Uses `MediaStore.MediaColumns.RELATIVE_PATH`
-     * on Android 10+; on older versions the path attribute is silently
-     * ignored and the file lands in the root of Downloads (no harm done,
-     * just a flatter layout).
-     */
     private fun writeToDownloadsSubfolder(
         fileName: String,
         content: String,
@@ -464,10 +391,8 @@ class MainActivity : AppCompatActivity() {
         val svc = GestureRecognitionService(
             gestureConfig = gestures,
             latestGestureMessage = latestGestureMessage,
-            // Per-gesture CSV export disabled: the user only wants a
-            // single CSV at the end of the match. [stopServer] writes
-            // the full session samples + match events + points then.
-            onGestureSegmentReady = { /* no-op */ },
+
+            onGestureSegmentReady = {  },
             passivityTrackingEnabled = !prodMode,
             logActivationGestures = !prodMode,
             vibrateOnScoringArmed =
@@ -494,11 +419,7 @@ class MainActivity : AppCompatActivity() {
         exportPointsCsv(blue, red)
         s.stop()
         server = null
-        // service intentionally kept alive: ProdFragment keeps polling
-        // it to leave the match log + final score on screen as a summary
-        // after the server stops. The next startServer() reassigns it to
-        // a fresh instance, which clears the displayed log automatically
-        // on the following poll tick.
+
     }
 
     fun exportAllCsv() {
@@ -514,17 +435,6 @@ class MainActivity : AppCompatActivity() {
         exportCsvAndReturnName(samples, prefix)
     }
 
-    /**
-     * Variant of [exportCsv] for testing-mode attempts. Adds a `detected`
-     * column whose value is:
-     *  - the recognised gesture's numeric ID (1-8) on the row whose
-     *    timestamp equals [detectedAtTs];
-     *  - `-` on every other row;
-     *  - `-` on every row if [detectedAtTs] or [detectedGestureId] is
-     *    null (skipped attempts have no recognised gesture).
-     *
-     * Returns the saved filename on success, `null` otherwise.
-     */
     fun exportTestingCsvAndReturnName(
         samples: List<ImuSample>,
         prefix: String,
@@ -567,11 +477,6 @@ class MainActivity : AppCompatActivity() {
         return if (ok) fileName else null
     }
 
-    /**
-     * Export the same IMU CSV format as [exportCsv] (`ts,gx,gy,gz,ax,ay,az`)
-     * but return the filename on success so callers can list saved files.
-     * Returns `null` if the sample list was empty or the write failed.
-     */
     fun exportCsvAndReturnName(samples: List<ImuSample>, prefix: String): String? {
         if (samples.isEmpty()) {
             Toast.makeText(this, "No samples to export", Toast.LENGTH_SHORT).show()

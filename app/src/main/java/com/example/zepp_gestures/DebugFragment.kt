@@ -92,9 +92,7 @@ class DebugFragment : Fragment() {
         passivityTimerText = view.findViewById(R.id.passivityTimerText)
 
         gyroGraph.setSeries(emptyList(), listOf("gx", "gy", "gz"))
-        // Only the -700 line is the actual scoring threshold (a flick
-        // fires on gx < -gxThreshold). The mirror +700 line was purely
-        // decorative; dropped per user request to declutter the gyro plot.
+
         gyroGraph.setHorizontalLines(
             listOf(
                 GraphView.HorizontalLine(-700f, 0x66D62728)

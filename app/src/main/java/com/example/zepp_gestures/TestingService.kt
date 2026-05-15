@@ -1,35 +1,5 @@
 package com.example.zepp_gestures
 
-/**
- * Backend pipeline used in Testing mode (Phase 1 -- isolated gestures).
- *
- * Workflow per attempt:
- *  1. Buffer all incoming samples in [activeBuffer].
- *  2. On every tick, decide whether *any* of the eight catalog gestures
- *     ([TestingGestures.ALL]) is currently active using the same 90 %
- *     band-match heuristic as [GestureRecognitionService].
- *  3. The first match (in catalog order) wins -- the iteration is
- *     anchored on the first gesture recognised, regardless of whether
- *     it's the one the user expected. This is intentional: the saved
- *     CSV will then show the false-positive case and the analyst can
- *     score the test accordingly.
- *  4. After detection we keep recording for [TAIL_CAPTURE_MS] more ms,
- *     then hand the buffer to [onAttemptCompleted] which writes the CSV.
- *  5. A short cooldown ([INTER_ATTEMPT_PAUSE_MS]) is enforced before
- *     the next attempt starts -- samples arriving during the cooldown
- *     are discarded so the next attempt's CSV starts clean.
- *  6. When [attemptCount] is reached, [onTestFinished] fires and any
- *     further ingest calls become no-ops.
- *
- * [skipCurrentAttempt] lets the user "complete" an attempt even though
- * the framework didn't recognise their gesture: the next ingest tick
- * promotes the latest sample to a synthetic detection, the tail still
- * gets captured, and the saved CSV's `detected` column is all `-`.
- *
- * All callbacks are invoked synchronously from inside [ingest] /
- * [ingestReset], i.e. on the HTTP worker thread. Callers that need to
- * touch the UI must marshal to the main thread themselves.
- */
 class TestingService(
     private val attemptCount: Int,
     private val onAttemptCompleted: (
@@ -50,46 +20,29 @@ class TestingService(
     companion object {
         private const val TAIL_CAPTURE_MS = 1_000L
         private const val INTER_ATTEMPT_PAUSE_MS = 1_000L
-        // Live ring-buffer window powering the UI graph in
-        // [TestingPhase1Fragment]. Kept independent of [activeBuffer]
-        // and [lastTwoSeconds] so the chart stays continuous across
-        // detection / tail capture / inter-attempt cooldown.
+
         private const val LIVE_WINDOW_MS = 20_000L
     }
 
     private val lock = Any()
 
-    // Samples for the current attempt -- everything since the last reset.
     private val activeBuffer = mutableListOf<ImuSample>()
 
-    // Continuous rolling buffer (LIVE_WINDOW_MS) for the live UI graph.
-    // Updated on every ingest, including during the inter-attempt
-    // cooldown, so the chart never "freezes".
     private val liveSamplesWindow = mutableListOf<ImuSample>()
 
-    // Rolling [GestureConfig.BUFFER_DURATION_MS] sample buffer used for band-match
-    // decisions. Mirrors GestureRecognitionService.lastTwoSeconds and uses
-    // the same continuous-run detection (≥ GestureConfig.MATCH_DURATION_MS in-band).
     private val lastTwoSeconds = mutableListOf<ImuSample>()
 
-    // Set when any catalog gesture was recognised this attempt; null
-    // otherwise. While set, we're recording the post-detection tail.
     private var detectedAtTs: Long? = null
     private var detectedGesture: TestingGesture? = null
 
-    // Skip flow -- see [skipCurrentAttempt].
     private var skipPending: Boolean = false
     private var currentAttemptSkipped: Boolean = false
 
-    // Cooldown gate. While [pauseUntilTs] is non-null and the latest
-    // sample timestamp is below it, ingested samples are dropped.
     private var pauseUntilTs: Long? = null
 
     private var attemptsCompleted: Int = 0
     private var stopped: Boolean = false
 
-    // Bands look-up for each catalog gesture, resolved once at construction
-    // so the per-tick detection loop is a tight band-match.
     private val catalogWithBands: List<Pair<TestingGesture, AccelBands>> =
         TestingGestures.ALL.mapNotNull { tg ->
             GestureConfig.gestures.firstOrNull { it.name == tg.internalName }
@@ -100,19 +53,10 @@ class TestingService(
         synchronized(lock) { stopped = true }
     }
 
-    /**
-     * Snapshot of the most recent samples within the configured live
-     * window ([LIVE_WINDOW_MS]). Powers the live accelerometer chart in
-     * [TestingPhase1Fragment]; safe to call from any thread.
-     */
     fun getLiveSamples(): List<ImuSample> = synchronized(lock) {
         liveSamplesWindow.toList()
     }
 
-    /**
-     * Mark the current attempt as "user-confirmed but not detected".
-     * No-op while already in tail-capture / cooldown / stopped.
-     */
     fun skipCurrentAttempt() {
         synchronized(lock) {
             if (stopped) return
@@ -155,9 +99,6 @@ class TestingService(
 
             val latestTs = parsed.last().ts
 
-            // Always feed the live UI window first, so the graph keeps
-            // updating during the inter-attempt cooldown when the rest
-            // of the pipeline drops samples.
             liveSamplesWindow.addAll(parsed)
             val liveCutoff = latestTs - LIVE_WINDOW_MS
             val liveIt = liveSamplesWindow.iterator()
@@ -165,9 +106,6 @@ class TestingService(
                 if (liveIt.next().ts < liveCutoff) liveIt.remove()
             }
 
-            // Inter-attempt cooldown: drop samples until the pause window
-            // elapses. We do not buffer them -- the next attempt should
-            // start with a clean slate.
             val pauseEnds = pauseUntilTs
             if (pauseEnds != null) {
                 if (latestTs < pauseEnds) {
@@ -181,7 +119,6 @@ class TestingService(
 
             activeBuffer.addAll(parsed)
 
-            // Update the rolling [GestureConfig.BUFFER_DURATION_MS] sample buffer.
             lastTwoSeconds.addAll(parsed)
             val newest = lastTwoSeconds.maxOf { it.ts }
             val cutoff = newest - GestureConfig.BUFFER_DURATION_MS
@@ -202,7 +139,6 @@ class TestingService(
                     attemptDetectedGesture =
                         if (currentAttemptSkipped) null else detectedGesture
 
-                    // Reset for the next attempt and start the cooldown.
                     activeBuffer.clear()
                     lastTwoSeconds.clear()
                     detectedAtTs = null
@@ -218,7 +154,7 @@ class TestingService(
                     }
                 }
             } else {
-                // Real match wins over a pending skip on the same tick.
+
                 val match = firstMatchingGesture()
                 if (match != null) {
                     detectedAtTs = latestTs
@@ -268,15 +204,6 @@ class TestingService(
         )
     }
 
-    /**
-     * Walk the catalog in [TestingGestures.ALL] order and return the
-     * first gesture for which [lastTwoSeconds] contains a continuous
-     * in-band run of at least [GestureConfig.MATCH_DURATION_MS]. `null` if none match.
-     * Mirrors GestureRecognitionService.detectAndConsume but does not
-     * consume the buffer -- a successful match here moves the attempt
-     * into tail-capture, after which the buffer is cleared on the next
-     * reset.
-     */
     private fun firstMatchingGesture(): TestingGesture? {
         if (lastTwoSeconds.isEmpty()) return null
         for ((tg, bands) in catalogWithBands) {

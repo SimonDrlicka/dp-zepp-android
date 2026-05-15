@@ -18,13 +18,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Phase 1: pick a target gesture + an attempt count, then run the test
- * loop. Each iteration ends as soon as *any* of the catalog gestures is
- * detected (not necessarily the expected one). After detection we keep
- * recording for 1 s, save the CSV, pause briefly, then start the next
- * attempt.
- */
 class TestingPhase1Fragment : Fragment() {
 
     private val main: MainActivity get() = activity as MainActivity
@@ -96,9 +89,6 @@ class TestingPhase1Fragment : Fragment() {
             TestingGestures.ALL.map { "${it.id}. ${it.displayName}" }
         )
 
-        // Re-overlay the bands of the currently-selected expected gesture
-        // each time the user changes it, so the chart shows what
-        // detection is actually checking against.
         gestureSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
                 applyExpectedGestureBands()
@@ -124,8 +114,7 @@ class TestingPhase1Fragment : Fragment() {
         skipBtn.setOnClickListener {
             if (main.isTestingRunning()) {
                 main.skipCurrentTestingAttempt()
-                // Disable until the next "waiting" tick so we don't queue
-                // multiple skips for the same attempt.
+
                 skipBtn.isEnabled = false
             }
         }
@@ -135,8 +124,7 @@ class TestingPhase1Fragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        // Re-bind callbacks every time the fragment becomes visible so
-        // that returning from another screen still gets live updates.
+
         if (main.isTestingRunning()) {
             main.bindTestingCallbacks(
                 onAttemptCompleted = ::handleAttemptCompleted,
@@ -149,8 +137,7 @@ class TestingPhase1Fragment : Fragment() {
     }
 
     override fun onPause() {
-        // Detach the fragment-bound callbacks so they don't fire after
-        // the view is gone. The service itself keeps running.
+
         main.unbindTestingCallbacks()
         handler.removeCallbacksAndMessages(null)
         super.onPause()
@@ -198,11 +185,7 @@ class TestingPhase1Fragment : Fragment() {
         detectedAtTs: Long?,
         detectedGesture: TestingGesture?
     ) {
-        // Filename layout (kept grep-friendly so the CSVs can be analysed
-        // by their name alone):
-        //   test_p1_<expectedId>-<expectedSlug>_<NN>_<detectedTag>_<timestamp>.csv
-        // where <detectedTag> is either "<id>-<slug>" of the recognised
-        // gesture, or "skipped" when the user manually skipped.
+
         val expected = expectedGesture()
         val attemptStr = attemptIndex.toString().padStart(2, '0')
         val expectedTag = "${expected.id}-${expected.slug}"
@@ -247,8 +230,7 @@ class TestingPhase1Fragment : Fragment() {
                 paused -> "Krátka pauza pred ďalším pokusom…"
                 else -> "Server beží — čakám na akékoľvek gesto…"
             }
-            // Skip is only meaningful while we're actively waiting for a
-            // detection (not during tail capture or inter-attempt pause).
+
             skipBtn.isEnabled = main.isTestingRunning() && !capturingTail && !paused
         }
     }
@@ -290,12 +272,6 @@ class TestingPhase1Fragment : Fragment() {
         }
     }
 
-    /**
-     * Re-overlay the AccelBands of the currently-selected expected
-     * gesture on [accelGraph]. The bands are looked up from the live
-     * [GestureConfig] entry so the chart stays in sync even if the
-     * Kotlin source is edited between runs.
-     */
     private fun applyExpectedGestureBands() {
         val expected = expectedGesture()
         val def = GestureConfig.gestures.firstOrNull { it.name == expected.internalName }

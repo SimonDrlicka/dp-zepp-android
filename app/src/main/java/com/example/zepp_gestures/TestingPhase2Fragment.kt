@@ -14,11 +14,6 @@ import com.example.zepp_gestures.composite.CompositeScenario
 import com.example.zepp_gestures.composite.CompositeScenarios
 import com.example.zepp_gestures.composite.compositeGestureName
 
-/**
- * Phase 2 entry screen: pick one of the eight composite scenarios and
- * the per-scenario attempt count, then jump into [CompositeTestFragment]
- * to run it.
- */
 class TestingPhase2Fragment : Fragment() {
 
     private val main: MainActivity get() = activity as MainActivity

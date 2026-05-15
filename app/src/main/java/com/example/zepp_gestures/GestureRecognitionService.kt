@@ -8,37 +8,20 @@ class GestureRecognitionService(
     private val gestureConfig: List<GestureDefinition>,
     private val latestGestureMessage: AtomicReference<String>,
     private val onGestureSegmentReady: (List<ImuSample>) -> Unit = {},
-    // When false (prod mode) the passivity timer is fully disabled: no
-    // 30 s countdown, no "Passivity ..." match events, and no automatic
-    // penalty point. Useful for live matches where the referee handles
-    // passivity manually.
+
     private val passivityTrackingEnabled: Boolean = true,
-    // When true (debug mode) the activation gesture "Hand up" (Rise Arm)
-    // is logged into the match event list so the diagnostic UI can show
-    // exactly when scoring was armed. Prod mode keeps it filtered out --
-    // the referee doesn't need pre-scoring noise in the live event log.
+
     private val logActivationGestures: Boolean = true,
-    // Live stream of every newly-appended [MatchEvent], fired from inside
-    // the HTTP worker thread *outside* the service's own lock. Default
-    // is a no-op so debug/prod modes are unaffected. Composite testing
-    // (Phase 2) hooks this to drive its sequence-tracking state machine
-    // without having to poll [matchEvents].
+
     private val onMatchEventEmitted: (MatchEvent) -> Unit = {},
-    // Whether the watch buzzes when an activation gesture ("Hand up" /
-    // "Hand back") arms scoring. Forwarded to [VibrationResolver]; see
-    // GestureConfig.VIBRATE_ON_SCORING_ARMED_IN_PROD for the prod-mode
-    // default callers compose from MainActivity.
+
     private val vibrateOnScoringArmed: Boolean = true
 ) : ImuIngestor {
     private val allSamples = mutableListOf<ImuSample>()
     private val sessionSamples = LinkedHashSet<ImuSample>()
     private val lastSecondSamples = mutableListOf<ImuSample>()
     private val lastTwoSeconds = mutableListOf<ImuSample>()
-    // Rolling [GestureConfig.SCORING_LOOKBACK_MS] sample buffer used to retroactively
-    // award flicks that happened during the brief gap between the user
-    // raising their arm and the activation gesture (e.g. "Hand up") being
-    // confirmed by [detectAndConsume]. Updated on every ingest regardless
-    // of mode; only read when mode transitions WAITING → scoring.
+
     private val scoringLookback = mutableListOf<ImuSample>()
     private val captureSamples = mutableListOf<ImuSample>()
     private val matchEvents = mutableListOf<MatchEvent>()
@@ -49,26 +32,14 @@ class GestureRecognitionService(
     private var pointArmed = true
     private var passivityRedDeadline: Long = 0L
     private var passivityBlueDeadline: Long = 0L
-    // Number of points scored within the currently-running scoring gesture
-    // (reset on entering scoring, handed off to [vibrationResolver] on exit
-    // so the watch can buzz a per-gesture summary).
+
     private var pointsThisGesture: Int = 0
-    // Edge-detection state for prod-mode passivity. In debug the deadline
-    // doubles as a de-dupe so we don't need this, but in prod (no deadline)
-    // we must remember the previous tick to emit the event/buzz only on
-    // the rising edge of each passivity pose.
+
     private var previousPassivityRedActive: Boolean = false
     private var previousPassivityBlueActive: Boolean = false
 
-    // Encapsulates all vibration-command state and resolution so the
-    // gesture pipeline doesn't have to know which tick produces what buzz.
     private val vibrationResolver = VibrationResolver(vibrateOnScoringArmed)
 
-    // Per-instance event filter -- in debug mode the activation gestures
-    // "Hand up" (Rise Arm) and "Hand back", as well as the deactivation
-    // gesture "Hand down", are surfaced in the match events log so the
-    // diagnostic UI shows exactly when scoring was armed and disarmed.
-    // In prod mode all three stay hidden.
     private val ignoredGestureNames: Set<String> =
         if (logActivationGestures) IGNORED_GESTURE_NAMES - setOf("Hand up", "Hand back", "Hand down")
         else IGNORED_GESTURE_NAMES
@@ -109,8 +80,7 @@ class GestureRecognitionService(
         modeChange: Pair<GestureMode, GestureMode>
     ): IngestResult {
         val latestTs = parsed.last().ts
-        // Each updateXxx call returns the events it newly appended so we
-        // can fire the live callback below, outside any service lock.
+
         val newPointEvents = updatePoints(parsed, activeGestures, latestTs, modeChange)
         updateCapture(parsed, modeChange)
         val newMatchEvents = mutableListOf<MatchEvent>()
@@ -124,10 +94,7 @@ class GestureRecognitionService(
         latestGestureMessage.set(message)
 
         val vibration = vibrationResolver.resolve(modeChange, passivityStarted, passivityExpired, newEventGestures)
-        // Fire the live event callback for everything newly appended this
-        // tick. Order: points first (they happen earliest in the pipeline),
-        // then plain match events, then passivity. The callback runs on the
-        // HTTP worker thread; subscribers must marshal to the UI thread.
+
         if (newPointEvents.isNotEmpty()) newPointEvents.forEach(onMatchEventEmitted)
         if (newMatchEvents.isNotEmpty()) newMatchEvents.forEach(onMatchEventEmitted)
         if (newPassivityEvents.isNotEmpty()) newPassivityEvents.forEach(onMatchEventEmitted)
@@ -152,29 +119,6 @@ class GestureRecognitionService(
         matchEvents.toList()
     }
 
-    /**
-     * Remove [target] from the live match-event log and roll back its
-     * direct score side-effect. Lets the referee correct a false
-     * detection mid-match (e.g. a phantom flick that scored a point).
-     *
-     * Soft delete: the event is kept in [matchEvents] for audit/log
-     * purposes (CSV export, on-screen strike-through) and only flagged
-     * with [MatchEvent.invalidated] = true. Re-invalidating an already
-     * invalidated event is a no-op so the score can't double-decrement.
-     *
-     * Score reverts:
-     *  - "Red point ..."                       -> red--
-     *  - "Blue point ..."                      -> blue--
-     *  - "Passivity red penalty (blue +1)"     -> blue--
-     *  - "Passivity blue penalty (red +1)"     -> red--
-     * everything else: no score change.
-     *
-     * Counters are floored at 0. Mode transitions, passivity deadlines,
-     * vibration latching etc. are *not* unwound -- the match has
-     * already moved on, and "best-effort" rollback there would mislead
-     * more than it would correct. Returns true when [target] was found
-     * and newly invalidated.
-     */
     fun deleteMatchEvent(target: MatchEvent): Boolean {
         val invalidated = synchronized(lock) {
             val idx = matchEvents.indexOfFirst {
@@ -214,13 +158,6 @@ class GestureRecognitionService(
         sessionSamples.toList()
     }
 
-    /**
-     * Full reset between Phase 2 composite-test attempts: zero score, drop
-     * all events, clear sliding windows and capture buffers, return to
-     * WAITING. Leaves [sessionSamples] alone so the caller (which exports
-     * per-attempt CSVs) can read the slice it cares about and clear it
-     * separately via [clearSessionSamples].
-     */
     fun resetForNextAttempt() {
         bluePoints.set(0)
         redPoints.set(0)
@@ -242,11 +179,6 @@ class GestureRecognitionService(
         vibrationResolver.reset()
     }
 
-    /**
-     * Wipe the per-attempt session buffer. Composite testing calls this
-     * after exporting the CSV so the next attempt starts from an empty
-     * record.
-     */
     fun clearSessionSamples() {
         synchronized(lock) {
             sessionSamples.clear()
@@ -277,14 +209,6 @@ class GestureRecognitionService(
         }
     }
 
-    /**
-     * Look for a continuous ≥ [GestureConfig.MATCH_DURATION_MS] in-band run for each
-     * configured gesture inside the rolling [GestureConfig.BUFFER_DURATION_MS] buffer.
-     * If at least one match is found, drop every sample at or before the
-     * latest matched-span end timestamp from [lastTwoSeconds] so the next
-     * detection requires a fresh hold (and the same span cannot trigger
-     * again on the next tick).
-     */
     private fun detectAndConsume(): List<GestureDefinition> {
         val active = ArrayList<GestureDefinition>()
         var consumeUntilTs: Long = Long.MIN_VALUE
@@ -320,12 +244,6 @@ class GestureRecognitionService(
         return active
     }
 
-    /**
-     * Walk [buf] left to right and return the timestamp of the sample at
-     * which a continuous in-band run first reaches [GestureConfig.MATCH_DURATION_MS]
-     * (measured between the run's first and current sample timestamps).
-     * Any out-of-band sample resets the run. `null` if no run qualifies.
-     */
     private fun findMatchEndTs(buf: List<ImuSample>, gesture: GestureDefinition): Long? {
         var runStart: Long? = null
         for (s in buf) {
@@ -392,9 +310,7 @@ class GestureRecognitionService(
                 }
             }
         }
-        // Hand off side-effects outside the lock to keep the critical
-        // section short and avoid nested-lock acquisition with the
-        // resolver's own lock.
+
         flicksToLatch?.let(vibrationResolver::latchScoringExitFlicks)
         segmentToExport?.let(onGestureSegmentReady)
     }
@@ -410,17 +326,11 @@ class GestureRecognitionService(
         val (previous, _) = modeChange
 
         synchronized(lock) {
-            // Always grow the scoring lookback so a future WAITING →
-            // scoring transition has the recent gx history available.
+
             appendToScoringLookback(newSamples)
 
             if (!mode.isScoring) return@synchronized
 
-            // On the tick that we just entered scoring, replay the
-            // lookback first so flicks that happened while we were still
-            // waiting for the activation gesture to confirm still count.
-            // Each [MatchEvent] uses the historical sample's [ts], not
-            // [latestTs], so the event log shows the actual flick time.
             val samplesToScore: List<ImuSample> = if (!previous.isScoring) {
                 val firstParsedTs = newSamples.firstOrNull()?.ts ?: Long.MAX_VALUE
                 scoringLookback.filter { it.ts < firstParsedTs } + newSamples
@@ -463,7 +373,7 @@ class GestureRecognitionService(
                                 pointsThisGesture++
                                 clearPassivityAndDisarm()
                             }
-                            else -> { /* unreachable: guarded by mode.isScoring */ }
+                            else -> {  }
                         }
                     }
                 } else if (s.gx >= -gxThreshold) {
@@ -499,7 +409,7 @@ class GestureRecognitionService(
     ): Set<String> {
         val (previous, current) = modeChange
         synchronized(lock) {
-            // Log warning mode transitions
+
             if (!previous.isWarning && current == GestureMode.WARNING_RED) {
                 val ev = MatchEvent(latestTs, "Warning red")
                 matchEvents.add(ev); emitted.add(ev)
@@ -509,7 +419,6 @@ class GestureRecognitionService(
                 matchEvents.add(ev); emitted.add(ev)
             }
 
-            // Log detected gestures with deduplication (skip hand_up/hand_down)
             val currentEventNames = activeGestures
                 .map { it.name }
                 .toSet()
@@ -518,11 +427,7 @@ class GestureRecognitionService(
             for (name in currentEventNames) {
                 if (name in previousActiveEventGestures) continue
                 if (name in ignoredGestureNames) continue
-                // Hand down is only meaningful when it actually exits a
-                // scoring/warning mode -- otherwise the wrist resting in
-                // the "down" pose would spam the log while already in
-                // WAITING. Skip the entry unless this tick produced the
-                // transition out of a non-WAITING state.
+
                 if (name == "Hand down" && previous == GestureMode.WAITING) continue
                 val ev = MatchEvent(latestTs, name)
                 matchEvents.add(ev); emitted.add(ev)
@@ -553,10 +458,7 @@ class GestureRecognitionService(
             val hasPassivityBlue = activeGestures.any { it.name == "Passivity blue" }
 
             if (passivityTrackingEnabled) {
-                // Debug mode: original deadline-based timer + penalty.
-                // The deadline doubles as a de-dupe -- the event/buzz fire
-                // once when the timer starts; subsequent ticks find
-                // anyPassivityActive=true and skip.
+
                 val anyPassivityActive = passivityRedDeadline > 0 || passivityBlueDeadline > 0
                 if (mode == GestureMode.WAITING && !anyPassivityActive) {
                     if (hasPassivityRed) {
@@ -587,10 +489,7 @@ class GestureRecognitionService(
                     expired = true
                 }
             } else {
-                // Prod mode: detection still fires the event + buzz once per
-                // appearance, but there is no 30 s timer and no automatic
-                // penalty point. Edge-detect on the previous-tick state so
-                // we only emit on the rising edge of each passivity pose.
+
                 if (passivityRedDeadline != 0L || passivityBlueDeadline != 0L) {
                     passivityRedDeadline = 0L
                     passivityBlueDeadline = 0L

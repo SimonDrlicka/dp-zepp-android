@@ -2,16 +2,6 @@ package com.example.zepp_gestures.composite
 
 import com.example.zepp_gestures.GestureMode
 
-/**
- * One detected gesture inside a Phase 2 attempt's actual sequence.
- *
- * - [stepIndex]: the gesture's position in the actual stream (0-based).
- * - [matchedExpected]: true iff this gesture matches the expected
- *   sequence at this position AND every prior gesture also matched
- *   (i.e. the actual prefix is still a prefix of the expected sequence
- *   up to and including this one). Cascades to false once any earlier
- *   detection went off-script -- see [CompositeTestRunner].
- */
 data class DetectedGesture(
     val gestureId: Int,
     val timestamp: Long,
@@ -19,10 +9,6 @@ data class DetectedGesture(
     val matchedExpected: Boolean
 )
 
-/**
- * Final result of a single Phase 2 attempt. Serialized to JSON next to
- * the attempt's CSV by [com.example.zepp_gestures.MainActivity].
- */
 data class AttemptOutcome(
     val scenarioId: String,
     val scenarioName: String,

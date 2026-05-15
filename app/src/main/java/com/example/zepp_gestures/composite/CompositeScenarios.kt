@@ -2,11 +2,6 @@ package com.example.zepp_gestures.composite
 
 import com.example.zepp_gestures.GestureMode
 
-/**
- * Catalog of the eight Phase 2 composite scenarios (A-H). Passivity
- * scenarios are intentionally excluded from this iteration -- the
- * 30-second timer + auto-penalty branch is disabled in Phase 2 anyway.
- */
 object CompositeScenarios {
 
     val ALL: List<CompositeScenario> = listOf(
@@ -71,8 +66,7 @@ object CompositeScenarios {
             name = "TOUCHE",
             displayName = "H — TOUCHE",
             expectedGestureIds = listOf(8),
-            // After Touche the match ends; score is irrelevant. Use the
-            // baseline (0,0) to keep equality checks straightforward.
+
             expectedFinalScore = Score(red = 0, blue = 0),
             expectedFinalMode = GestureMode.WAITING
         )
@@ -81,10 +75,6 @@ object CompositeScenarios {
     fun byId(id: String): CompositeScenario? = ALL.firstOrNull { it.id == id }
 }
 
-/**
- * Display name lookup for composite gesture IDs (1-9). Used by the
- * sequence-tracker UI and the JSON failure-reason builder.
- */
 fun compositeGestureName(id: Int): String = when (id) {
     1 -> "Rise Arm"
     2 -> "Hand Back"

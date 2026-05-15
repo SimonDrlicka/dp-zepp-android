@@ -19,41 +19,15 @@ object GestureConfig {
     const val POINT_GYRO_GX_THRESHOLD = 7.0
     const val POINT_GYRO_GX_SCALE = 100.0
 
-    // ─── Detection pipeline tuning ──────────────────────────────────
-    // Single source of truth shared by GestureRecognitionService (prod
-    // scoring) and TestingService (Phase 1 isolated-gesture testing) so
-    // both pipelines stay in lockstep when these are tweaked.
-
-    // Rolling sample buffer over which we hunt for a gesture hold.
-    // Anything older than this is evicted on every ingest.
     const val BUFFER_DURATION_MS = 2_000L
 
-    // Minimum continuous in-band time required to count a gesture as
-    // detected. After a successful match the matched span and everything
-    // older are dropped from the buffer (see [detectAndConsume]) so the
-    // next match needs a fresh hold.
     const val MATCH_DURATION_MS = 200L
 
-    // Window the prod scoring pipeline replays when the mode transitions
-    // from WAITING into a scoring mode — flicks that fired during the
-    // brief gap before the activation gesture (e.g. "Hand up") finished
-    // detecting still count, with their original sample timestamps.
     const val SCORING_LOOKBACK_MS = 1_500L
 
-    // Whether prod mode buzzes the watch when the activation gestures
-    // ("Hand up" / "Hand back") arm scoring. Debug mode always buzzes so
-    // the developer gets tactile confirmation; prod toggles this so a
-    // referee isn't disturbed by per-arm buzzes during a live match.
-    // Other vibrations (warnings, points, scoring exit, passivity) are
-    // unaffected.
     const val VIBRATE_ON_SCORING_ARMED_IN_PROD = false
     val gestures: List<GestureDefinition> = listOf(
         GestureDefinition(
-            // Internal identifier kept as "Hand up" -- it's the lookup
-            // key used by GestureRecognitionService, TestingGestures,
-            // CompositeTestRunner and the Python dashboard parser. Only
-            // the [message] (and the MatchEventAdapter display mapping)
-            // shows the user-facing "Rise arm".
             name = "Hand up",
             message = "Gesture detected: rise arm",
             bands = AccelBands(

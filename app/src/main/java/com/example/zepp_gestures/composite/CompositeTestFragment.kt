@@ -20,12 +20,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Single fragment driving the running attempt, the per-attempt result,
- * and the final summary. Sections are toggled via visibility instead of
- * separate fragments so the [MainActivity]-owned composite server +
- * service can keep ticking continuously across attempts.
- */
 class CompositeTestFragment : Fragment() {
 
     private val main: MainActivity get() = activity as MainActivity
@@ -33,34 +27,25 @@ class CompositeTestFragment : Fragment() {
 
     private lateinit var scenario: CompositeScenario
     private var totalAttempts: Int = 0
-    private var currentAttemptIndex: Int = 0  // 1-based once an attempt is running
+    private var currentAttemptIndex: Int = 0
     private val attemptOutcomes: MutableList<AttemptOutcome> = mutableListOf()
 
     private var runner: CompositeTestRunner? = null
     private var lastSampleTs: Long = 0L
     private var attemptStartSampleCount: Int = 0
 
-    // Outcome + sample slice for the most recently finished attempt,
-    // held until the user picks save / discard. Cleared once the choice
-    // is made.
     private var pendingOutcome: AttemptOutcome? = null
     private var pendingSamples: List<ImuSample> = emptyList()
 
-    // Suffix shared by every attempt's CSV/JSON in this test session;
-    // ensures repeat runs of the same scenario don't overwrite earlier
-    // files. Generated once in onViewCreated.
     private lateinit var runTimestamp: String
 
-    // Sections
     private lateinit var runningSection: LinearLayout
     private lateinit var resultSection: LinearLayout
     private lateinit var summarySection: LinearLayout
 
-    // Header
     private lateinit var titleText: TextView
     private lateinit var attemptCounter: TextView
 
-    // Running widgets
     private lateinit var currentStepText: TextView
     private lateinit var mismatchBanner: TextView
     private lateinit var stepListText: TextView
@@ -69,7 +54,6 @@ class CompositeTestFragment : Fragment() {
     private lateinit var endAttemptBtn: Button
     private lateinit var endTestBtn: Button
 
-    // Result widgets
     private lateinit var resultStatusText: TextView
     private lateinit var resultStepListText: TextView
     private lateinit var resultScoreText: TextView
@@ -80,7 +64,6 @@ class CompositeTestFragment : Fragment() {
     private lateinit var discardNextBtn: Button
     private lateinit var resultEndTestBtn: Button
 
-    // Summary widgets
     private lateinit var summaryHeader: TextView
     private lateinit var summaryList: TextView
     private lateinit var summaryPath: TextView
@@ -133,8 +116,7 @@ class CompositeTestFragment : Fragment() {
         saveNextBtn.setOnClickListener { onSaveAndContinue() }
         discardNextBtn.setOnClickListener { onDiscardAndContinue() }
         resultEndTestBtn.setOnClickListener {
-            // End-test from the result screen treats the current attempt
-            // as discarded -- the user explicitly opted out of saving.
+
             clearPending()
             showSummary()
         }
@@ -202,22 +184,15 @@ class CompositeTestFragment : Fragment() {
         currentAttemptIndex++
         attemptCounter.text = "Pokus $currentAttemptIndex z $totalAttempts"
 
-        // Reset gesture service to a clean WAITING state and drop any
-        // previously-buffered samples so the per-attempt CSV starts clean.
         main.resetCompositeForNextAttempt()
 
-        // Snapshot how many samples are in the session buffer at the
-        // moment the attempt starts, so we can slice cleanly later.
         attemptStartSampleCount = main.getCompositeService()?.getSessionSamples()?.size ?: 0
 
         val newRunner = CompositeTestRunner(scenario, currentAttemptIndex)
         runner = newRunner
-        // Defer start() until the first stream sample / match event
-        // arrives so the inactivity-timeout clock matches the stream's
-        // own clock domain. Until then onTick() is a no-op.
+
         lastSampleTs = 0L
 
-        // Subscribe to live match events for this attempt.
         main.bindCompositeMatchEventListener { event ->
             ui.post { handleMatchEvent(event) }
         }
@@ -244,9 +219,7 @@ class CompositeTestFragment : Fragment() {
         val samples = svc.getSessionSamples()
         if (samples.isNotEmpty()) {
             lastSampleTs = samples.last().ts
-            // Lock in the runner's clock domain on the first sample we
-            // see, so the timeout starts ticking even if no recognised
-            // gesture has fired yet.
+
             if (r.startTimestamp == 0L) {
                 r.start(samples.first().ts)
             }
@@ -276,15 +249,11 @@ class CompositeTestFragment : Fragment() {
             actualFinalMode = mode
         )
 
-        // Slice the per-attempt sample window from the service buffer.
         val allSamples = svc?.getSessionSamples().orEmpty()
         val attemptSamples = if (attemptStartSampleCount < allSamples.size) {
             allSamples.subList(attemptStartSampleCount, allSamples.size).toList()
         } else allSamples.toList()
 
-        // Defer the actual file export until the user picks save or
-        // discard on the result screen -- buggy attempts can be thrown
-        // away without polluting the dataset.
         pendingOutcome = outcome
         pendingSamples = attemptSamples
         showResultSection(outcome)
@@ -330,8 +299,6 @@ class CompositeTestFragment : Fragment() {
         main.showTestingPhaseSelect()
     }
 
-    // ============= UI rendering =============
-
     private fun showRunningSection() {
         runningSection.visibility = View.VISIBLE
         resultSection.visibility = View.GONE
@@ -362,8 +329,7 @@ class CompositeTestFragment : Fragment() {
             "Režim: ${outcome.actualFinalMode.name} (očakávaný: ${outcome.expectedFinalMode.name})"
         resultReasonText.text =
             outcome.failureReason?.let { "Dôvod zlyhania: $it" } ?: ""
-        // The user picks save / discard below -- nothing has been
-        // written yet, so leave the file-list line empty.
+
         resultFilesText.text = ""
 
         val isLast = currentAttemptIndex >= totalAttempts
@@ -404,7 +370,6 @@ class CompositeTestFragment : Fragment() {
         val (blue, red) = svc?.getPoints() ?: (0 to 0)
         val mode = svc?.getMode() ?: GestureMode.WAITING
 
-        // Current expected step
         if (r.nextExpectedIndex >= scenario.expectedGestureIds.size) {
             currentStepText.text = "Hotovo — sekvencia ukončená"
         } else {
@@ -415,7 +380,6 @@ class CompositeTestFragment : Fragment() {
                 "Krok $stepNum z $total: ▶ ${compositeGestureName(expectedId).uppercase()}"
         }
 
-        // Mismatch banner
         if (r.lastDetectionWasMismatch && r.lastDetectedId != null) {
             val expectedId = scenario.expectedGestureIds.getOrNull(
                 r.actualGestures.lastOrNull()?.stepIndex ?: -1
@@ -451,7 +415,7 @@ class CompositeTestFragment : Fragment() {
             sb.append(line)
             if (i != scenario.expectedGestureIds.lastIndex) sb.append("\n")
         }
-        // Surface any extra gestures that landed after the expected sequence.
+
         if (r.actualGestures.size > scenario.expectedGestureIds.size) {
             sb.append("\n")
             for (i in scenario.expectedGestureIds.size until r.actualGestures.size) {

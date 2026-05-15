@@ -69,9 +69,7 @@ class ProdFragment : Fragment() {
 
         view.findViewById<Button>(R.id.startBtn).setOnClickListener {
             val prod = main.selectedProdMode == true
-            // The previous session's log + score stayed on screen after
-            // stop -- clear them eagerly so the new session doesn't
-            // appear to "inherit" old data for up to one poll tick.
+
             adapter.submitList(emptyList())
             lastEventCount = 0
             pointsText.text = "Blue: 0 | Red: 0"
@@ -83,9 +81,7 @@ class ProdFragment : Fragment() {
         view.findViewById<Button>(R.id.stopBtn).setOnClickListener {
             main.stopServer()
             statusText.text = "Match ended"
-            // Score / passivity timer / event log intentionally NOT
-            // reset -- they stay visible as a match summary until the
-            // user presses Start again.
+
         }
 
         if (main.server != null) {
@@ -112,8 +108,7 @@ class ProdFragment : Fragment() {
             .setMessage("$timeStr  ${event.event}")
             .setPositiveButton("Vymazať") { _, _ ->
                 if (service.deleteMatchEvent(event)) {
-                    // Refresh immediately so the user sees the result
-                    // without waiting for the 300 ms poll tick.
+
                     val updated = service.getMatchEvents()
                     adapter.submitList(updated)
                     lastEventCount = updated.size

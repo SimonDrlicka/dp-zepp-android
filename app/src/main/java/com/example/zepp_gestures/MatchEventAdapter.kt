@@ -16,10 +16,7 @@ import java.util.Date
 import java.util.Locale
 
 class MatchEventAdapter(
-    // Per-row delete hook. ProdFragment shows a confirm dialog then
-    // calls GestureRecognitionService.deleteMatchEvent. Default no-op
-    // keeps the adapter usable from other call sites without forcing
-    // a callback.
+
     private val onDeleteRequest: (MatchEvent) -> Unit = {}
 ) : ListAdapter<MatchEvent, MatchEventAdapter.ViewHolder>(DIFF) {
 
@@ -50,14 +47,11 @@ class MatchEventAdapter(
             textSize = 14f
             minWidth = (40 * density).toInt()
             minimumWidth = (40 * density).toInt()
-            // Compact paddings so the row stays the same height as the
-            // surrounding text -- default Button paddings would stretch
-            // each event row vertically.
+
             val pv = (4 * density).toInt()
             val ph = (10 * density).toInt()
             setPadding(ph, pv, ph, pv)
-            // Subtle danger styling — visible affordance without
-            // dominating the row.
+
             setTextColor("#a32626".toColorInt())
             contentDescription = "Delete event"
         }
@@ -91,13 +85,6 @@ class MatchEventAdapter(
         )
     }
 
-    /**
-     * Display-only rename of the activation-gesture identifier. The
-     * underlying [MatchEvent.event] (and therefore the CSV export and
-     * any downstream tooling) keeps the canonical "Hand up" string so
-     * the recognition pipeline / Python dashboard / TestingGestures
-     * lookup all stay in sync.
-     */
     private fun displayLabel(eventText: String): String =
         eventText.replace("Hand up", "Rise arm")
 
@@ -108,10 +95,7 @@ class MatchEventAdapter(
     ) : RecyclerView.ViewHolder(row)
 
     companion object {
-        // [ts, event] uniquely identifies a match event in a single
-        // session (timestamps are monotonic ms). The [invalidated] flag
-        // can flip true via soft-delete, so areContentsTheSame relies on
-        // full structural equality to repaint the strike-through row.
+
         private val DIFF = object : DiffUtil.ItemCallback<MatchEvent>() {
             override fun areItemsTheSame(old: MatchEvent, new: MatchEvent): Boolean =
                 old.ts == new.ts && old.event == new.event

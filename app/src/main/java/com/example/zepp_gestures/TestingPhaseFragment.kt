@@ -7,11 +7,6 @@ import android.view.ViewGroup
 import android.widget.Button
 import androidx.fragment.app.Fragment
 
-/**
- * Phase select screen for Testing mode. Two big buttons that navigate
- * to the corresponding Phase fragment, plus a back button to return
- * to the mode-select screen.
- */
 class TestingPhaseFragment : Fragment() {
 
     private val main: MainActivity get() = activity as MainActivity
