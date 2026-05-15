@@ -165,7 +165,7 @@ class CompositeTestRunner(
 }
 
 fun mapEventNameToCompositeId(eventName: String): Int? = when {
-    eventName == "Hand up" -> 1
+    eventName == "Rise Arm" -> 1
     eventName == "Hand back" -> 2
     eventName == "Hand down" -> 3
     eventName == "Passivity red" -> 4

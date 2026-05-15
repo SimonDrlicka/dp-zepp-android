@@ -28,7 +28,7 @@ object GestureConfig {
     const val VIBRATE_ON_SCORING_ARMED_IN_PROD = false
     val gestures: List<GestureDefinition> = listOf(
         GestureDefinition(
-            name = "Hand up",
+            name = "Rise Arm",
             message = "Gesture detected: rise arm",
             bands = AccelBands(
                 axMin = 7.69,

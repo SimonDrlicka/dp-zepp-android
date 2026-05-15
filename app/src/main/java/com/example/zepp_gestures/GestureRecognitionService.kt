@@ -41,7 +41,7 @@ class GestureRecognitionService(
     private val vibrationResolver = VibrationResolver(vibrateOnScoringArmed)
 
     private val ignoredGestureNames: Set<String> =
-        if (logActivationGestures) IGNORED_GESTURE_NAMES - setOf("Hand up", "Hand back", "Hand down")
+        if (logActivationGestures) IGNORED_GESTURE_NAMES - setOf("Rise Arm", "Hand back", "Hand down")
         else IGNORED_GESTURE_NAMES
 
     private val lock = Any()
@@ -50,7 +50,7 @@ class GestureRecognitionService(
         private const val PASSIVITY_TIMEOUT_MS = 30_000L
         private val EVENT_GESTURE_NAMES = setOf("Touche")
         private val IGNORED_GESTURE_NAMES = setOf(
-            "Hand up", "Hand down", "Hand back",
+            "Rise Arm", "Hand down", "Hand back",
             "Warning red", "Warning blue",
             "Passivity red", "Passivity blue",
             "Flick red", "Flick blue"
@@ -268,7 +268,7 @@ class GestureRecognitionService(
         val previous = currentMode.get()
         if (activeGestures.isEmpty()) return previous to previous
 
-        val hasHandUp = activeGestures.any { it.name == "Hand up" }
+        val hasHandUp = activeGestures.any { it.name == "Rise Arm" }
         val hasHandBack = activeGestures.any { it.name == "Hand back" }
         val hasHandDown = activeGestures.any { it.name == "Hand down" }
         val hasRedWarning = activeGestures.any { it.name == "Warning red" }

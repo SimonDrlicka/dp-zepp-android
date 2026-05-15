@@ -72,7 +72,7 @@ class MatchEventAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val event = getItem(position)
-        holder.text.text = "${fmt.format(Date(event.ts))}  ${displayLabel(event.event)}"
+        holder.text.text = "${fmt.format(Date(event.ts))}  ${event.event}"
         holder.text.paintFlags = if (event.invalidated) {
             holder.text.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
         } else {
@@ -84,9 +84,6 @@ class MatchEventAdapter(
             if (event.invalidated) null else View.OnClickListener { onDeleteRequest(event) }
         )
     }
-
-    private fun displayLabel(eventText: String): String =
-        eventText.replace("Hand up", "Rise arm")
 
     class ViewHolder(
         row: View,
